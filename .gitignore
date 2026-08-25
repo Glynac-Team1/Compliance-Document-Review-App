@@ -147,8 +147,10 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
-# Environments
+# Environments and local configuration
 .env
+.env.*
+!.env.example
 .envrc
 .venv
 env/
@@ -216,3 +218,58 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Application secrets and credentials
+secrets/
+*.secret
+*.credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*_rsa
+*_ed25519
+credentials.json
+service-account*.json
+
+# Local file storage and generated exports
+storage/
+uploads/
+artifacts/
+exports/
+logs/
+tmp/
+temp/
+
+# Local database files and backups
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.dump
+*.bak
+*.backup
+
+# Docker Compose local overrides
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Frontend dependencies and build output
+node_modules/
+frontend/dist/
+frontend/build/
+frontend/.vite/
+frontend/.cache/
+.npm/
+.pnpm-store/
+
+# OS and local editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
