@@ -15,7 +15,7 @@ See also: [`docs/technical-implementation-plan.md`](./technical-implementation-p
 |---|---|---|
 | **Basamsetti Venkata Vamsi** | **AI Engineering** | PII masking pipelines (Presidio + custom regex), prompt engineering, structured JSON schema enforcement, and third-party LLM integrations (Gemini / Groq). |
 | **Kashish Agarwal** | **Backend Engineering** | FastAPI REST endpoints, session/role auth enforcement (server-side 403 gates), document lifecycle state machine, and Celery/Redis background task orchestration. |
-| **Daniel Ojo** | **Frontend Engineering** | React + TypeScript SPA, split-pane review interface, TanStack Query integration, role-gated routes, and responsive UI/UX for loading & degraded states. |
+| **Daniel Ojo** | **Frontend Engineering** | Next.js + TypeScript SPA, split-pane review interface, TanStack Query integration, role-gated routes, and responsive UI/UX for loading & degraded states. |
 | **Jemarco Briz** | **Data Engineering** | Format-aware text extraction (PDF/DOCX/XLSX), local vector embeddings (`BAAI/bge-small-en-v1.5`), `pgvector` HNSW index architecture, and the 3-phase retrieval engine. |
 | **Cross-Track / Shared** | **DevOps & Platform** | Docker Compose orchestration, automated Alembic migration & seeding scripts on boot, environment controls, and GitHub Actions CI pipelines. |
 
