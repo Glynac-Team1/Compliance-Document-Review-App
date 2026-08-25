@@ -1,9 +1,11 @@
 import unittest
-from pii_masker import PIIMasker
+from ai.pii_masker import PIIMasker
+from ai.gemini_assist import GeminiAssistEngine
 
-class TestPIIMasker(unittest.TestCase):
+class TestEnterprisePIIMasker(unittest.TestCase):
     def setUp(self):
         self.masker = PIIMasker()
+        self.engine = GeminiAssistEngine(api_key=None)
 
     def test_email_masking(self):
         text = "Contact Jane Smith at jane.smith@example.com for details."
@@ -34,6 +36,33 @@ class TestPIIMasker(unittest.TestCase):
         self.assertNotIn("$250,000.00", masked)
         self.assertIn("[AMOUNT_1]", masked)
         self.assertEqual(self.masker.unmask(masked, mapping), text)
+
+    def test_client_name_masking(self):
+        text = "Client Jane Smith has requested an account update."
+        masked, mapping = self.masker.mask(text)
+        self.assertNotIn("Jane Smith", masked)
+        self.assertIn("[CLIENT_1]", masked)
+
+    def test_outbound_payload_proof(self):
+        """Verifies that the outbound API payload carries 0 real PII values."""
+        sample_doc = (
+            "Client John Doe (john.doe@northstar.com, 555-987-6543) guarantees "
+            "a 15% return on Account ACC-54321 with $500,000.00 invested."
+        )
+        proof = self.engine.generate_payload_proof(sample_doc)
+        
+        # Assert PII leak detection flag is False
+        self.assertFalse(proof.pii_leak_detected, "Outbound payload leaked real PII values!")
+        self.assertNotIn("john.doe@northstar.com", proof.outbound_json_payload)
+        self.assertNotIn("555-987-6543", proof.outbound_json_payload)
+        self.assertNotIn("ACC-54321", proof.outbound_json_payload)
+        self.assertNotIn("$500,000.00", proof.outbound_json_payload)
+
+    def test_graceful_degradation(self):
+        """Verifies the engine degrades gracefully when no API key is provided."""
+        res = self.engine.analyze_document("Sample document text without key.")
+        self.assertTrue(res.degraded)
+        self.assertIn("unavailable", res.summary)
 
 if __name__ == "__main__":
     unittest.main()
