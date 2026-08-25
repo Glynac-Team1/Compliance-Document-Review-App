@@ -1,11 +1,13 @@
 # backend/app/core/security.py
 from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from app.config import settings
 from app.models import Role
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def hash_password(raw: str) -> str:
@@ -20,9 +22,11 @@ def create_session_token(user_id: str, role: Role) -> str:
     return jwt.encode({"sub": user_id, "role": role.value}, settings.session_secret, algorithm="HS256")
 
 
-def decode_session_token(token: str) -> dict:
+def decode_session_token(credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)) -> dict:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Authentication required")
     try:
-        return jwt.decode(token, settings.session_secret, algorithms=["HS256"])
+        return jwt.decode(credentials.credentials, settings.session_secret, algorithms=["HS256"])
     except JWTError as exc:
         raise HTTPException(status_code=401, detail="Invalid session") from exc
 

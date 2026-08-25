@@ -5,7 +5,7 @@ A web application that replaces ad-hoc compliance review with a shared queue, an
 
 Built as a 4-week intern glynac project across five tracks: Backend, Frontend, AI, Data Engineering, DevOps/Platform.
 
-See also: [`docs/technical-implementation-plan.md`](./technical-implementation-plan.md) for detailed per-track scope, and [`docs/architecture.md`](./architecture.md) for system and data/AI diagrams.
+See also: [`docs/technical-implementation-plan.md`](./docs/technical-implementation-plan.md) for detailed per-track scope, and [`docs/architecture.md`](./docs/architecture.md) for system and data/AI diagrams.
 
 ---
 

@@ -20,3 +20,4 @@ async def upload_document(file: UploadFile, _: dict = Depends(require_role(Role.
 
     # save file, insert Document row (status=pending_review),
     # enqueue analyze_document(document_id) — see Part 8
+    return {"status": DocumentStatus.pending_review.value, "filename": file.filename}
