@@ -1,5 +1,5 @@
 #!/bin/sh
 set -e
 
-alembic upgrade head
+alembic -c alembic.ini upgrade head
 exec "$@"
