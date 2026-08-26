@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-compliance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-compliance}
+      POSTGRES_DB: ${POSTGRES_DB:-compliance_review}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./devops/init-db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://$${POSTGRES_USER:-compliance}:$${POSTGRES_PASSWORD:-compliance}@postgres:5432/$${POSTGRES_DB:-compliance_review}
+      REDIS_URL: redis://redis:6379/0
+      SESSION_SECRET: $${SESSION_SECRET:-dev-secret-change-me}
+      LLM_API_KEY: $${LLM_API_KEY:-}
+      LLM_PROVIDER: $${LLM_PROVIDER:-gemini}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: ./backend
+    command: celery -A worker.celery_app.celery_app worker --loglevel=info
+    environment:
+      DATABASE_URL: postgresql+asyncpg://$${POSTGRES_USER:-compliance}:$${POSTGRES_PASSWORD:-compliance}@postgres:5432/$${POSTGRES_DB:-compliance_review}
+      REDIS_URL: redis://redis:6379/0
+      SESSION_SECRET: $${SESSION_SECRET:-dev-secret-change-me}
+      LLM_API_KEY: $${LLM_API_KEY:-}
+      LLM_PROVIDER: $${LLM_PROVIDER:-gemini}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
