@@ -41,8 +41,9 @@ services:
         condition: service_healthy
 
   worker:
-    build: ./backend
-    command: celery -A worker.celery_app.celery_app worker --loglevel=info
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-compliance}:${POSTGRES_PASSWORD:-compliance}@postgres:5432/${POSTGRES_DB:-compliance_review}
       REDIS_URL: redis://redis:6379/0

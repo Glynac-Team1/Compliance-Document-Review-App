@@ -1,5 +1,7 @@
 import unittest
-from pii_masker import PIIMasker
+
+from worker.ai.pii_masker import PIIMasker
+
 
 class TestPIIMasker(unittest.TestCase):
     def setUp(self):
@@ -34,6 +36,7 @@ class TestPIIMasker(unittest.TestCase):
         self.assertNotIn("$250,000.00", masked)
         self.assertIn("[AMOUNT_1]", masked)
         self.assertEqual(self.masker.unmask(masked, mapping), text)
+
 
 if __name__ == "__main__":
     unittest.main()
