@@ -8,5 +8,5 @@ celery_app.conf.task_default_queue = "document-analysis"
 
 @celery_app.task
 def analyze_document(document_id: str) -> dict:
-    """Pipeline entry point reserved for extraction, masking, and AI analysis."""
+    """Pipeline entry point for extraction, masking, and AI analysis."""
     return {"document_id": document_id, "status": "pending"}
