@@ -10,31 +10,44 @@ class PIIMasker:
             "SSN_ACCOUNT": r"\b(?:\d{3}-\d{2}-\d{4}|ACC-\d{5,8}|\d{9,12})\b",
             "PHONE": r"\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b",
             "CURRENCY": r"\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?",
+            "CLIENT_NAME": r"\b(?:Client|Advisor|Investor|Mr\.|Ms\.|Mrs\.|Dr\.)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b",
         }
 
     def mask(self, text: str) -> tuple[str, dict[str, str]]:
         mapping: dict[str, str] = {}
-        counters = {"EMAIL": 1, "PHONE": 1, "ACCOUNT": 1, "AMOUNT": 1}
+        counters = {"CLIENT": 1, "EMAIL": 1, "PHONE": 1, "ACCOUNT": 1, "AMOUNT": 1}
         masked_text = text
 
+        # 1. Mask Client Names
+        for name in set(re.findall(self.patterns["CLIENT_NAME"], masked_text)):
+            if name and name not in mapping.values():
+                placeholder = f"[CLIENT_{counters['CLIENT']}]"
+                mapping[placeholder] = name
+                masked_text = masked_text.replace(name, placeholder)
+                counters["CLIENT"] += 1
+
+        # 2. Mask Emails
         for email in set(re.findall(self.patterns["EMAIL"], masked_text)):
             placeholder = f"[EMAIL_{counters['EMAIL']}]"
             mapping[placeholder] = email
             masked_text = masked_text.replace(email, placeholder)
             counters["EMAIL"] += 1
 
+        # 3. Mask SSN & Account Numbers
         for account in set(re.findall(self.patterns["SSN_ACCOUNT"], masked_text)):
             placeholder = f"[ACCOUNT_{counters['ACCOUNT']}]"
             mapping[placeholder] = account
             masked_text = masked_text.replace(account, placeholder)
             counters["ACCOUNT"] += 1
 
+        # 4. Mask Phone Numbers
         for phone in set(re.findall(self.patterns["PHONE"], masked_text)):
             placeholder = f"[PHONE_{counters['PHONE']}]"
             mapping[placeholder] = phone
             masked_text = masked_text.replace(phone, placeholder)
             counters["PHONE"] += 1
 
+        # 5. Mask Dollar Amounts
         for amount in set(re.findall(self.patterns["CURRENCY"], masked_text)):
             placeholder = f"[AMOUNT_{counters['AMOUNT']}]"
             mapping[placeholder] = amount
