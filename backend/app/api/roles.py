@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.core.security import require_role
-from app.models import Role
+from models import Role
 
 
 advisor_router = APIRouter()
