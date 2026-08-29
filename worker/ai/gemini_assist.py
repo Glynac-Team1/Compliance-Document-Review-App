@@ -4,6 +4,7 @@ import urllib.error
 import urllib.request
 
 from .pii_masker import PIIMasker
+from .rules_corpus import get_default_rules
 
 
 class GeminiAssistEngine:
@@ -32,10 +33,7 @@ class GeminiAssistEngine:
             "   - 'explanation': one-line reason why the passage violates the rule.\n"
             "Do NOT invent extra fields. Output valid JSON only."
         )
-        rules = rules_context or [
-            {"id": "RULE_DISCLOSURE_REQUIRED", "text": "All performance claims must include standard risk disclosures."},
-            {"id": "RULE_NO_GUARANTEES", "text": "Guaranteed or promised investment returns are strictly prohibited."},
-        ]
+        rules = rules_context or get_default_rules()
         prompt = f"RULES:\n{json.dumps(rules)}\n\nDOCUMENT TEXT:\n{masked_text}"
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],

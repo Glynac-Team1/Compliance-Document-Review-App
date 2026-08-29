@@ -3,6 +3,7 @@ import unittest
 
 from worker.ai.gemini_assist import GeminiAssistEngine
 from worker.ai.pii_masker import PIIMasker
+from worker.ai.rules_corpus import get_default_rules, COMPLIANCE_RULES_CORPUS
 
 
 class TestPIIMasker(unittest.TestCase):
@@ -71,6 +72,15 @@ class TestPIIMasker(unittest.TestCase):
         res = self.engine.analyze_document("Sample text without LLM API key.")
         self.assertTrue(res.get("degraded"))
         self.assertIn("unavailable", res.get("summary", ""))
+
+    def test_rules_corpus_availability(self):
+        """Verifies the seeded compliance rules corpus is structured properly."""
+        rules = get_default_rules()
+        self.assertGreaterEqual(len(rules), 10)
+        for rule in rules:
+            self.assertIn("id", rule)
+            self.assertIn("category", rule)
+            self.assertIn("text", rule)
 
 
 if __name__ == "__main__":
