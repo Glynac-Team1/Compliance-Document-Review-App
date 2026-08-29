@@ -11,7 +11,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./devops/init-db:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -27,11 +27,11 @@ services:
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql+asyncpg://$${POSTGRES_USER:-compliance}:$${POSTGRES_PASSWORD:-compliance}@postgres:5432/$${POSTGRES_DB:-compliance_review}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-compliance}:${POSTGRES_PASSWORD:-compliance}@postgres:5432/${POSTGRES_DB:-compliance_review}
       REDIS_URL: redis://redis:6379/0
-      SESSION_SECRET: $${SESSION_SECRET:-dev-secret-change-me}
-      LLM_API_KEY: $${LLM_API_KEY:-}
-      LLM_PROVIDER: $${LLM_PROVIDER:-gemini}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-secret-change-me}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
     ports:
       - "8000:8000"
     depends_on:
@@ -44,11 +44,11 @@ services:
     build: ./backend
     command: celery -A worker.celery_app.celery_app worker --loglevel=info
     environment:
-      DATABASE_URL: postgresql+asyncpg://$${POSTGRES_USER:-compliance}:$${POSTGRES_PASSWORD:-compliance}@postgres:5432/$${POSTGRES_DB:-compliance_review}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-compliance}:${POSTGRES_PASSWORD:-compliance}@postgres:5432/${POSTGRES_DB:-compliance_review}
       REDIS_URL: redis://redis:6379/0
-      SESSION_SECRET: $${SESSION_SECRET:-dev-secret-change-me}
-      LLM_API_KEY: $${LLM_API_KEY:-}
-      LLM_PROVIDER: $${LLM_PROVIDER:-gemini}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-secret-change-me}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
     depends_on:
       postgres:
         condition: service_healthy
