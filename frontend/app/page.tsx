@@ -35,18 +35,55 @@ export default function Page() {
   const [loading, setLoading] = useState(false)
   const [toast, setToast] = useState('')
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (loading) return
     setLoading(true)
     setToast('')
-    window.setTimeout(() => {
-      if (role === 'Financial Advisor') {
+
+    // Grab the values from the form
+    const formData = new FormData(event.currentTarget)
+    const email = formData.get('email')
+    const password = formData.get('password')
+    const name = formData.get('name') || "New User" // Only used for signup
+
+    try {
+      // Decision for /login or /signup
+      const endpoint = mode === 'login' ? '/auth/login' : '/auth/signup'
+
+      // Send the request to FastAPI backend
+      const response = await fetch(`http://localhost:8000${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password,
+          name,
+          role: role === 'Financial Advisor' ? 'advisor' : 'officer'
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Authentication failed")
+      }
+
+      // Save the real security token in the browser!
+      localStorage.setItem("auth_token", data.token)
+
+      // Securely route to the correct dashboard
+      if (data.role === 'advisor') {
         router.push('/advisor')
       } else {
         router.push('/compliance-officer')
       }
-    }, 600)
+
+    } catch (error: any) {
+      setToast(error.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (

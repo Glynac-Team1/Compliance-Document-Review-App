@@ -2,20 +2,17 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from app.config import settings
 from models import Role
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
 
-
 def hash_password(raw: str) -> str:
-    return pwd_context.hash(raw)
-
+    return bcrypt.hashpw(raw.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def verify_password(raw: str, hashed: str) -> bool:
-    return pwd_context.verify(raw, hashed)
+    return bcrypt.checkpw(raw.encode('utf-8'), hashed.encode('utf-8'))
 
 
 def create_session_token(user_id: str, role: Role) -> str:
