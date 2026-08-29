@@ -13,3 +13,4 @@ uvicorn[standard]==0.32.0
 pytest==8.3.3
 pytest-asyncio==0.24.0
 bcrypt==4.0.1
+email-validator
