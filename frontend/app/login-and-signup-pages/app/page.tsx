@@ -2,7 +2,6 @@
 
 import { FormEvent, useState } from 'react'
 import { ArrowRight, Check, Eye, EyeOff, LockKeyhole, ShieldCheck, Sparkles, UserRound } from 'lucide-react'
-import { useRouter } from 'next/navigation'
 
 function BrandMark() {
   return (
@@ -28,7 +27,6 @@ function RoleOption({ selected, title, description, onClick }: { selected: boole
 }
 
 export default function Page() {
-  const router = useRouter()
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [role, setRole] = useState<'Financial Advisor' | 'Compliance Officer'>('Financial Advisor')
   const [showPassword, setShowPassword] = useState(false)
@@ -41,12 +39,9 @@ export default function Page() {
     setLoading(true)
     setToast('')
     window.setTimeout(() => {
-      if (role === 'Financial Advisor') {
-        router.push('/advisor')
-      } else {
-        router.push('/compliance-officer')
-      }
-    }, 600)
+      setLoading(false)
+      setToast(`Routing to ${role === 'Financial Advisor' ? 'Advisor' : 'Officer'} Dashboard...`)
+    }, 900)
   }
 
   return (
