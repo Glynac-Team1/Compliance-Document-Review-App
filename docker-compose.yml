@@ -51,6 +51,8 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend:/app
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,6 +71,8 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:-dev-secret-change-me}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+    volumes:
+      - ./backend:/app
     depends_on:
       postgres:
         condition: service_healthy
@@ -79,6 +83,10 @@ services:
     build: ./frontend
     ports:
       - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
     depends_on:
       - backend
 
