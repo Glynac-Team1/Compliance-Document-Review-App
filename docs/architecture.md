@@ -287,7 +287,7 @@ stateDiagram-v2
 |---|---|
 | `frontend/` | React SPA — Advisor & Officer dashboards |
 | `backend/api/` | FastAPI routes, auth middleware, state machine |
-| `backend/worker/` | Celery tasks, `analyze_document` entrypoint |
+| `worker/` | Celery tasks, AI pipeline, and `analyze_document` entrypoint |
 | `pipeline/ingestion/` | Format-specific extractors |
 | `pipeline/privacy/` | Presidio config, custom regex recognizers, `pii_mappings` I/O |
 | `pipeline/embedding/` | Chunker, local encoder wrapper |
