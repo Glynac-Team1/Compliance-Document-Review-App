@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 import { Analytics } from '@vercel/analytics/next'
+=======
+>>>>>>> backend-authentication
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
@@ -39,7 +42,10 @@ export default function RootLayout({
     <html lang="en" className="bg-background">
       <body className="antialiased">
         {children}
+<<<<<<< HEAD
         {process.env.NODE_ENV === 'production' && <Analytics />}
+=======
+>>>>>>> backend-authentication
       </body>
     </html>
   )

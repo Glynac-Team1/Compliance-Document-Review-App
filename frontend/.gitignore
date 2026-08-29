@@ -43,3 +43,5 @@ node_modules
 dist
 .vite
 *.tsbuildinfo
+.next/
+node_modules/
