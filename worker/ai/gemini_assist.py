@@ -54,7 +54,8 @@ class GeminiAssistEngine:
             print("[WARN] No LLM_API_KEY set. Gracefully degrading AI assist.")
             return fallback_response
 
-        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+        # Use Gemini 2.5 Flash model
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
         try:
             request = urllib.request.Request(
@@ -62,7 +63,7 @@ class GeminiAssistEngine:
                 data=json.dumps(payload).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(request, timeout=10) as response:
+            with urllib.request.urlopen(request, timeout=15) as response:
                 result = json.loads(response.read().decode("utf-8"))
                 analysis = json.loads(result["candidates"][0]["content"]["parts"][0]["text"])
                 analysis["summary"] = self.masker.unmask(analysis.get("summary", ""), mapping)
