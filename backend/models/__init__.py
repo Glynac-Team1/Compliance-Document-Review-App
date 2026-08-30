@@ -43,6 +43,7 @@ class Document(Base):
     locked_by_officer_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     
     # Storage Reference (MinIO Object Key)
+    original_filename: Mapped[str] = mapped_column(String, nullable=True)
     file_reference: Mapped[str] = mapped_column(String, nullable=False)
     file_type: Mapped[str] = mapped_column(String, nullable=False) # e.g., 'pdf', 'docx'
     

@@ -48,6 +48,7 @@ async def upload_document(
     new_document = Document(
         advisor_id=user_token["sub"],       # "sub" holds the user's UUID from the JWT token
         status=DocumentStatus.pending,      # Start in the pending state
+        original_filename=file.filename,    #original name forthe file
         file_reference=file_reference,      # The string path MinIO  gave 
         file_type=file_ext
     )

@@ -1,6 +1,7 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import Submissions from './Submissions'
 import {
   ArrowUpRight,
   Bell,
@@ -67,12 +68,13 @@ const resources = [
 ]
 
 function StatusBadge({ status }: { status: string }) {
+  const normalized = (status || '').toLowerCase()
   const styles =
-    status === 'Approved'
+    normalized === 'approved'
       ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-      : status === 'Pending'
-        ? 'bg-amber-50 text-amber-700 ring-amber-200'
-        : 'bg-red-50 text-red-700 ring-red-200'
+      : normalized === 'pending' || normalized === 'in_review'
+      ? 'bg-amber-50 text-amber-700 ring-amber-200'
+      : 'bg-red-50 text-red-700 ring-red-200'
 
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${styles}`}>
@@ -82,198 +84,7 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-function Submissions({ onUpload }: { onUpload: () => void }) {
-  const [selectedDocument, setSelectedDocument] = useState<(typeof submissions)[number] | null>(null)
 
-  const complianceComments: Record<string, string> = {
-    'Q3 Marketing Brochure': 'Approved for client distribution. The risk disclosure and performance language meet current communication standards.',
-    'Client Risk Assessment': 'Compliance is reviewing the suitability rationale and supporting client documentation.',
-    'Investment Policy Statement': 'Please clarify the liquidity objectives in section 3 and add the client acknowledgement before resubmitting.',
-    'Annual Financial Review': 'Approved. The portfolio summary and client-facing disclosures are complete.',
-    'Client Onboarding Form': 'Required KYC fields are incomplete. Please provide the missing beneficiary information and resubmit.',
-  }
-
-  return (
-    <section
-      onClick={(event) => {
-        const target = event.target as HTMLElement
-        const button = target.closest('button')
-        if (button?.textContent?.trim().toLowerCase().includes('view') && button.closest('tr')) {
-          const row = button.closest('tr')
-          const rowIndex = Array.from(row?.parentElement?.children ?? []).indexOf(row)
-          const document = submissions[rowIndex]
-          if (document) setSelectedDocument(document)
-        }
-      }}
-      className="min-w-0 flex-1 px-5 py-8 sm:px-8 lg:py-10"
-    >
-      {selectedDocument && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-primary/20 p-5 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="compliance-review-title"
-        >
-          <div className="w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-primary">Compliance review</p>
-                <h2 id="compliance-review-title" className="mt-2 text-xl font-bold text-foreground">
-                  {selectedDocument.name}
-                </h2>
-              </div>
-              <button
-                onClick={() => setSelectedDocument(null)}
-                aria-label="Close compliance review"
-                className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-primary"
-              >
-                <X className="size-5" />
-              </button>
-            </div>
-            <div className="mt-6 rounded-lg border border-border bg-muted/35 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-semibold text-foreground">Officer&apos;s comment</span>
-                <StatusBadge status={selectedDocument.status} />
-              </div>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">{complianceComments[selectedDocument.name]}</p>
-            </div>
-            <div className="mt-5 flex items-center justify-between border-t border-border pt-4 text-xs text-muted-foreground">
-              <span>
-                {selectedDocument.type} · Uploaded {selectedDocument.date}
-              </span>
-              <button
-                onClick={() => setSelectedDocument(null)}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
-        <div>
-          <p className="mb-2 text-sm font-semibold uppercase tracking-widest text-primary">Advisor portal</p>
-          <h1 className="font-sans text-3xl font-bold tracking-tight text-primary sm:text-4xl">My submissions</h1>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Review and manage the documents you&apos;ve submitted for compliance.
-          </p>
-        </div>
-        <button
-          onClick={onUpload}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
-        >
-          <Upload className="size-4" />
-          Upload document
-        </button>
-      </div>
-
-      <div className="grid items-start gap-6 lg:grid-cols-[180px_minmax(0,1fr)]">
-        <div className="flex gap-3 lg:flex-col">
-          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Submitted</p>
-            <p className="mt-2 text-2xl font-bold text-primary">5</p>
-            <p className="mt-1 text-xs text-muted-foreground">documents</p>
-          </div>
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Approved</p>
-            <p className="mt-2 text-2xl font-bold text-emerald-800">2</p>
-            <p className="mt-1 text-xs text-emerald-700">documents</p>
-          </div>
-          <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Needs review</p>
-            <p className="mt-2 text-2xl font-bold text-amber-800">3</p>
-            <p className="mt-1 text-xs text-amber-700">documents</p>
-          </div>
-        </div>
-
-        <div className="min-w-0">
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-                <input
-                  className="h-9 w-52 rounded-md border border-input bg-card pl-9 pr-3 text-sm outline-none ring-primary focus:ring-2"
-                  placeholder="Search documents"
-                  aria-label="Search documents"
-                />
-              </div>
-              <button className="inline-flex h-9 items-center gap-2 rounded-md border border-input px-3 text-sm font-medium text-muted-foreground hover:bg-muted">
-                <Filter className="size-4" />
-                Filter
-              </button>
-            </div>
-            <p className="hidden text-sm text-muted-foreground sm:block">5 documents</p>
-          </div>
-
-          <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[680px] text-left text-sm">
-                <thead className="border-b border-border bg-muted/45 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <tr>
-                    <th className="px-5 py-3.5">Document name</th>
-                    <th className="px-5 py-3.5">Upload date</th>
-                    <th className="px-5 py-3.5">File type</th>
-                    <th className="px-5 py-3.5">Status</th>
-                    <th className="px-5 py-3.5">
-                      <span className="sr-only">Actions</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {submissions.map((item) => (
-                    <tr className="group hover:bg-muted/30" key={item.name}>
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          <span className="flex size-9 items-center justify-center rounded-md bg-blue-50 text-primary">
-                            <FileText className="size-4" />
-                          </span>
-                          <span className="font-medium text-foreground">{item.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-4 text-muted-foreground">{item.date}</td>
-                      <td className="px-5 py-4">
-                        <span className="rounded bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">{item.type}</span>
-                      </td>
-                      <td className="px-5 py-4">
-                        <StatusBadge status={item.status} />
-                      </td>
-                      <td className="px-5 py-4 text-right">
-                        <button
-                          onClick={(event) => {
-                            const row = (event.currentTarget as HTMLElement).closest('tr')
-                            const rowIndex = Array.from(row?.parentElement?.children ?? []).indexOf(row)
-                            const doc = submissions[rowIndex]
-                            if (doc) setSelectedDocument(doc)
-                          }}
-                          className="text-xs font-semibold text-primary opacity-0 group-hover:opacity-100"
-                        >
-                          View
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex items-center justify-between border-t border-border px-5 py-3 text-sm text-muted-foreground">
-              <span>Showing 1–5 of 5</span>
-              <div className="flex gap-1">
-                <button aria-label="Previous page" className="rounded p-1.5 hover:bg-muted">
-                  <ChevronLeft className="size-4" />
-                </button>
-                <button aria-label="Next page" className="rounded p-1.5 hover:bg-muted">
-                  <ChevronRight className="size-4" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  )
-}
 
 function Resources() {
   const [selected, setSelected] = useState<(typeof resources)[number] | null>(null)
@@ -453,6 +264,30 @@ function Support() {
 }
 
 export default function Page() {
+    const [user, setUser] = useState({ name: 'Loading...', role: '' })
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      const token = localStorage.getItem('auth_token')
+      if (!token) return
+      
+      try {
+        const response = await fetch('http://localhost:8000/auth/me', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        if (response.ok) {
+          const data = await response.json()
+          setUser(data)
+        }
+      } catch (err) {
+        console.error("Failed to fetch user profile")
+      }
+    }
+    fetchUser()
+  }, [])
+  
+  // math function to grab the first letter of their first and last name
+  const initials = user.name === 'Loading...' ? '..' : user.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
   const [panelOpen, setPanelOpen] = useState(true)
   const [screen, setScreen] = useState('Submissions')
   const fileInput = useRef<HTMLInputElement>(null)
@@ -515,8 +350,9 @@ export default function Page() {
                 <button
                   key={item}
                   onClick={() => setScreen(item)}
-                  className={`border-b-2 py-7 transition ${screen === item ? 'border-primary text-primary' : 'border-transparent hover:text-primary'
-                    }`}
+                  className={`border-b-2 py-7 transition ${
+                    screen === item ? 'border-primary text-primary' : 'border-transparent hover:text-primary'
+                  }`}
                 >
                   {item}
                 </button>
@@ -536,13 +372,13 @@ export default function Page() {
             </button>
             <div className="h-7 w-px bg-border" />
             <button className="flex items-center gap-2 text-left">
-              <span className="flex size-9 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
-                JD
-              </span>
-              <span className="hidden text-sm sm:block">
-                <span className="block font-semibold text-foreground">Jordan Davis</span>
-                <span className="block text-xs text-muted-foreground">Financial Advisor</span>
-              </span>
+                  <span className="flex size-9 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
+                    {initials}
+                  </span>
+                  <span className="hidden text-sm sm:block">
+                    <span className="block font-semibold text-foreground">{user.name}</span>
+                    <span className="block text-xs text-muted-foreground capitalize">{user.role}</span>
+                  </span>
               <ChevronDown className="hidden size-4 text-muted-foreground sm:block" />
             </button>
           </div>
@@ -578,8 +414,9 @@ export default function Page() {
                 {notifications.map((note, index) => (
                   <div className="relative flex gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 shadow-sm" key={note.title}>
                     <span
-                      className={`mt-1.5 size-2 shrink-0 rounded-full ${note.tone === 'success' ? 'bg-emerald-500' : note.tone === 'warning' ? 'bg-amber-500' : 'bg-blue-500'
-                        }`}
+                      className={`mt-1.5 size-2 shrink-0 rounded-full ${
+                        note.tone === 'success' ? 'bg-emerald-500' : note.tone === 'warning' ? 'bg-amber-500' : 'bg-blue-500'
+                      }`}
                     />
                     <div>
                       <p className="text-sm leading-5 text-slate-800">{note.title}</p>
@@ -599,7 +436,7 @@ export default function Page() {
 
       {uploaded && (
         <div className="fixed bottom-5 left-1/2 z-30 -translate-x-1/2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 shadow-lg">
-          Document uploaded and sent for review!
+          Document selected and ready for review.
         </div>
       )}
     </main>

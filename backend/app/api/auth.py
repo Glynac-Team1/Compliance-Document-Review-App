@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from app.database import get_db
 from models import User, Role
-from app.core.security import hash_password, verify_password, create_session_token
+from app.core.security import hash_password, verify_password, create_session_token,decode_session_token
 
 router = APIRouter()
 
@@ -51,3 +51,19 @@ async def login(req: AuthRequest, db: AsyncSession = Depends(get_db)):
     #  Hand back a valid token
     token = create_session_token(str(user.id), user.role)
     return {"token": token, "role": user.role.value}
+
+
+@router.get("/me")
+async def get_current_user(token: dict = Depends(decode_session_token), db: AsyncSession = Depends(get_db)):
+    user_id = token["sub"]
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    return {
+        "name": user.name,
+        "email": user.email,
+        "role": user.role.value
+    }
