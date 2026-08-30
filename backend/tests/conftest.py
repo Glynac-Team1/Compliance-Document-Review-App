@@ -3,7 +3,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from app.core.security import create_session_token
-from app.models import Role
+from models import Role
 
 
 @pytest.fixture

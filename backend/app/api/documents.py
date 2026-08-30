@@ -1,7 +1,7 @@
 # core logic, upload endpoint
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from app.core.security import require_role
-from app.models import Role, DocumentStatus
+from models import Role, DocumentStatus
 from app.config import settings
 import magic
 

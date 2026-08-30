@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import require_role
 from app.database import get_db
-from app.models import Role, Document
+from models import Role, Document
 
 advisor_router = APIRouter()
 officer_router = APIRouter()
@@ -18,14 +18,15 @@ async def list_my_documents(
 ) -> dict:
     user_id = uuid.UUID(token["sub"])
     result = await db.execute(
-        select(Document).where(Document.uploaded_by == user_id)
+        select(Document).where(Document.advisor_id == user_id)
     )
     documents = result.scalars().all()
     return {
         "documents": [
             {
                 "id": str(doc.id),
-                "filename": doc.filename,
+                "file_reference": doc.file_reference,
+                "file_type": doc.file_type,
                 "status": doc.status.value,
                 "created_at": doc.created_at.isoformat(),
             }
@@ -45,7 +46,8 @@ async def list_review_queue(
         "documents": [
             {
                 "id": str(doc.id),
-                "filename": doc.filename,
+                "file_reference": doc.file_reference,
+                "file_type": doc.file_type,
                 "status": doc.status.value,
                 "created_at": doc.created_at.isoformat(),
             }
