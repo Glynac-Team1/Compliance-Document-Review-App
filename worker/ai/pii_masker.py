@@ -1,62 +1,83 @@
 import re
+from typing import Dict, List, Tuple
 
 
 class PIIMasker:
     """Mask document PII before text reaches an external AI provider."""
 
-    def __init__(self):
-        self.patterns = {
-            "EMAIL": r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}",
-            "SSN_ACCOUNT": r"\b(?:\d{3}-\d{2}-\d{4}|ACC-\d{5,8}|\d{9,12})\b",
-            "PHONE": r"\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b",
-            "CURRENCY": r"\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?",
-            "CLIENT_NAME": r"\b(?:Client|Advisor|Investor|Mr\.|Ms\.|Mrs\.|Dr\.)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b",
-        }
+    # A single combined pattern instead of 5 separate ones. Alternatives are
+    # tried left-to-right at each starting position, so ORDER = PRIORITY.
+    # This matters in two places:
+    #   - PHONE is listed before the bare-digit ACCOUNT pattern, so a
+    #     10-13 digit phone-shaped run is claimed by PHONE first instead of
+    #     being swallowed whole by the generic \d{9,12} account pattern.
+    #   - EMAIL/CLIENT_NAME/SSN/ACC_PREFIX have distinctive leading tokens
+    #     (@, a title word, digit-dash-digit, "ACC-") so they never really
+    #     compete with each other, but listing them ahead of the generic
+    #     digit patterns keeps that guaranteed.
+    _COMBINED_PATTERN = re.compile(
+        r"(?P<EMAIL>[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})"
+        r"|(?P<CLIENT_NAME>\b(?:Client|Advisor|Investor|Mr\.|Ms\.|Mrs\.|Dr\.)\s+"
+        r"(?P<CLIENT_VALUE>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b)"
+        r"|(?P<SSN>\b\d{3}-\d{2}-\d{4}\b)"
+        r"|(?P<ACC_PREFIX>\bACC-\d{5,8}\b)"
+        r"|(?P<PHONE>\b(?:\+?\d{1,3}[-.\s])?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b)"
+        r"|(?P<ACC_BARE>\b\d{9,12}\b)"
+        r"|(?P<CURRENCY>\$(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{2})?)"
+    )
 
-    def mask(self, text: str) -> tuple[str, dict[str, str]]:
-        mapping: dict[str, str] = {}
-        counters = {"CLIENT": 1, "EMAIL": 1, "PHONE": 1, "ACCOUNT": 1, "AMOUNT": 1}
-        masked_text = text
+    # Every named group above (except the CLIENT_VALUE sub-group) maps to
+    # the placeholder category it should be masked as.
+    _GROUP_TO_CATEGORY = {
+        "EMAIL": "EMAIL",
+        "CLIENT_NAME": "CLIENT",
+        "SSN": "ACCOUNT",
+        "ACC_PREFIX": "ACCOUNT",
+        "PHONE": "PHONE",
+        "ACC_BARE": "ACCOUNT",
+        "CURRENCY": "AMOUNT",
+    }
 
-        # 1. Mask Client Names
-        for name in set(re.findall(self.patterns["CLIENT_NAME"], masked_text)):
-            if name and name not in mapping.values():
-                placeholder = f"[CLIENT_{counters['CLIENT']}]"
-                mapping[placeholder] = name
-                masked_text = masked_text.replace(name, placeholder)
-                counters["CLIENT"] += 1
+    def mask(self, text: str) -> Tuple[str, Dict[str, str]]:
+        mapping: Dict[str, str] = {}
+        value_to_placeholder: Dict[Tuple[str, str], str] = {}
+        counters: Dict[str, int] = {}
 
-        # 2. Mask Emails
-        for email in set(re.findall(self.patterns["EMAIL"], masked_text)):
-            placeholder = f"[EMAIL_{counters['EMAIL']}]"
-            mapping[placeholder] = email
-            masked_text = masked_text.replace(email, placeholder)
-            counters["EMAIL"] += 1
+        pieces: List[str] = []
+        cursor = 0
 
-        # 3. Mask SSN & Account Numbers
-        for account in set(re.findall(self.patterns["SSN_ACCOUNT"], masked_text)):
-            placeholder = f"[ACCOUNT_{counters['ACCOUNT']}]"
-            mapping[placeholder] = account
-            masked_text = masked_text.replace(account, placeholder)
-            counters["ACCOUNT"] += 1
+        for match in self._COMBINED_PATTERN.finditer(text):
+            gd = match.groupdict()
+            group_name = next(
+                name for name in self._GROUP_TO_CATEGORY if gd.get(name) is not None
+            )
+            category = self._GROUP_TO_CATEGORY[group_name]
 
-        # 4. Mask Phone Numbers
-        for phone in set(re.findall(self.patterns["PHONE"], masked_text)):
-            placeholder = f"[PHONE_{counters['PHONE']}]"
-            mapping[placeholder] = phone
-            masked_text = masked_text.replace(phone, placeholder)
-            counters["PHONE"] += 1
+            if group_name == "CLIENT_NAME":
+                # Mask only the name itself; leave the title
+                # ("Client", "Dr.", ...) visible in the output.
+                value = match.group("CLIENT_VALUE")
+                span_start, span_end = match.span("CLIENT_VALUE")
+            else:
+                value = match.group()
+                span_start, span_end = match.span()
 
-        # 5. Mask Dollar Amounts
-        for amount in set(re.findall(self.patterns["CURRENCY"], masked_text)):
-            placeholder = f"[AMOUNT_{counters['AMOUNT']}]"
-            mapping[placeholder] = amount
-            masked_text = masked_text.replace(amount, placeholder)
-            counters["AMOUNT"] += 1
+            key = (category, value)
+            placeholder = value_to_placeholder.get(key)
+            if placeholder is None:
+                counters[category] = counters.get(category, 0) + 1
+                placeholder = f"[{category}_{counters[category]}]"
+                value_to_placeholder[key] = placeholder
+                mapping[placeholder] = value
 
-        return masked_text, mapping
+            pieces.append(text[cursor:span_start])
+            pieces.append(placeholder)
+            cursor = span_end
 
-    def unmask(self, text: str, mapping: dict[str, str]) -> str:
+        pieces.append(text[cursor:])
+        return "".join(pieces), mapping
+
+    def unmask(self, text: str, mapping: Dict[str, str]) -> str:
         for placeholder, original in mapping.items():
             text = text.replace(placeholder, original)
         return text
