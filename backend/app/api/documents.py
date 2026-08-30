@@ -29,7 +29,8 @@ async def upload_document(
         contents.extend(chunk)
 
     #Validate MIME type
-    mime = magic.from_buffer(contents, mime=True)
+    # Convert to bytes, and only check the first 2048 bytes
+    mime = magic.from_buffer(bytes(contents[:2048]), mime=True)
     if mime not in settings.allowed_mime_types:
         raise HTTPException(415, f"Unsupported file type: {mime}")
 
@@ -47,7 +48,7 @@ async def upload_document(
     new_document = Document(
         advisor_id=user_token["sub"],       # "sub" holds the user's UUID from the JWT token
         status=DocumentStatus.pending,      # Start in the pending state
-        file_reference=file_reference,      # The string path MinIO just gave us!
+        file_reference=file_reference,      # The string path MinIO  gave 
         file_type=file_ext
     )
     
