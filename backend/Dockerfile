@@ -1,4 +1,4 @@
-clea# ---- Stage 1: build dependencies in an isolated layer ----
+# ---- Stage 1: build dependencies in an isolated layer ----
 FROM python:3.12-slim AS builder
 
 WORKDIR /build
