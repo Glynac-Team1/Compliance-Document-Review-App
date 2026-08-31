@@ -72,7 +72,7 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
     volumes:
-      - ./backend:/app
+      - embedding_cache:/home/appuser/.cache/huggingface
     depends_on:
       postgres:
         condition: service_healthy
@@ -93,3 +93,4 @@ services:
 volumes:
   postgres_data:
   minio_data:
+  embedding_cache:
