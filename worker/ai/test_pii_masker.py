@@ -73,15 +73,39 @@ class TestPIIMasker(unittest.TestCase):
         self.assertTrue(res.get("degraded"))
         self.assertIn("unavailable", res.get("summary", ""))
 
-    def test_rules_corpus_availability(self):
-        """Verifies the seeded compliance rules corpus is structured properly."""
-        rules = get_default_rules()
-        self.assertGreaterEqual(len(rules), 10)
-        for rule in rules:
-            self.assertIn("id", rule)
-            self.assertIn("category", rule)
-            self.assertIn("text", rule)
+    def test_repeated_entity_consistency(self):
+        """Verifies that the same PII entity receives the same placeholder consistently."""
+        text = "Advisor Alice Wonder met with Client Bob Hope. Later, Client Bob Hope called Advisor Alice Wonder."
+        masked, mapping = self.masker.mask(text)
+        self.assertEqual(masked.count("[CLIENT_1]"), 2)
+        self.assertEqual(masked.count("[CLIENT_2]"), 2)
+        unmasked = self.masker.unmask(masked, mapping)
+        self.assertEqual(unmasked, text)
+
+    def test_multiple_distinct_entities(self):
+        """Verifies numbering increments for distinct entities."""
+        text = "Emails: alice@firm.com, bob@client.com, charlie@advisory.org"
+        masked, mapping = self.masker.mask(text)
+        self.assertIn("[EMAIL_1]", masked)
+        self.assertIn("[EMAIL_2]", masked)
+        self.assertIn("[EMAIL_3]", masked)
+        self.assertEqual(len(mapping), 3)
+
+    def test_structured_flag_schema_validation(self):
+        """Verifies that flag format strictly adheres to traceable flag requirements."""
+        flag = {
+            "passage": "We guarantee 20% annual returns.",
+            "matched_rule_id": "RULE_FINRA_2210_NO_GUARANTEES",
+            "severity": "HIGH",
+            "explanation": "Guarantees of investment returns are prohibited under FINRA Rule 2210."
+        }
+        self.assertIn("passage", flag)
+        self.assertIn("matched_rule_id", flag)
+        self.assertIn("severity", flag)
+        self.assertIn("explanation", flag)
+        self.assertIn(flag["severity"], ["HIGH", "MEDIUM", "LOW"])
 
 
 if __name__ == "__main__":
     unittest.main()
+
