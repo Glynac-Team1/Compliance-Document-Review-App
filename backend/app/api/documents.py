@@ -5,6 +5,7 @@ from pydantic import BaseModel
 import magic
 import asyncio
 import uuid
+from models import AIAnalysis, Flag, AnalysisStatus, AuditEvent, AuditAction
 
 from app.core.security import require_role
 from models import Role, DocumentStatus, Document, Review, Decision
@@ -96,15 +97,61 @@ async def claim_document(
         .returning(Document.id)
     )
     claimed_id = result.scalar_one_or_none()
-    await db.commit()
 
     if claimed_id is None:
+        await db.commit()
         exists = await db.scalar(select(Document.id).where(Document.id == document_id))
         if exists is None:
             raise HTTPException(404, "Document not found")
         raise HTTPException(409, "Document already claimed")
 
+    db.add(AuditEvent(
+        actor_id=officer_id,
+        document_id=claimed_id,
+        action=AuditAction.viewed,
+    ))
+    await db.commit()
+
     return {"document_id": str(claimed_id), "status": DocumentStatus.in_review.value}
+
+
+@router.get("/{document_id}/analysis")
+async def get_analysis(
+    document_id: uuid.UUID,
+    _: dict = Depends(require_role(Role.officer)),
+    db: AsyncSession = Depends(get_db),
+):
+    analysis = await db.scalar(
+        select(AIAnalysis).where(AIAnalysis.document_id == document_id)
+    )
+
+    if analysis is None:
+        raise HTTPException(404, "No analysis found for this document")
+
+    if analysis.status == AnalysisStatus.pending:
+        raise HTTPException(202, "Analysis is still processing")
+
+    if analysis.status == AnalysisStatus.error:
+        raise HTTPException(503, "AI analysis is unavailable")
+
+    flags_result = await db.execute(
+        select(Flag).where(Flag.analysis_id == analysis.id)
+    )
+    flags = flags_result.scalars().all()
+
+    return {
+        "summary": analysis.summary,
+        "flags": [
+            {
+                "passage": f.passage_excerpt,
+                "matched_rule_id": str(f.matched_rule_id),
+                "explanation": f.explanation,
+                "severity": f.severity.value,
+            }
+            for f in flags
+        ],
+        "precedents": [],
+    }
 
 
 @router.post("/{document_id}/decision")
@@ -138,6 +185,13 @@ async def submit_decision(
         comment=body.comment,
     )
     db.add(review)
+
+    db.add(AuditEvent(
+        actor_id=officer_id,
+        document_id=doc.id,
+        action=AuditAction.decided,
+    ))
+
     await db.commit()
 
     return {"document_id": str(doc.id), "status": doc.status.value}
