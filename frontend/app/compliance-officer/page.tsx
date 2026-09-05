@@ -2,7 +2,7 @@
 import PdfViewer from "./PdfViewer"
 
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
 
   Activity,
@@ -53,6 +53,33 @@ function Nav({
   screen: Screen
   setScreen: (screen: Screen) => void
 }) {
+  const [queueCount, setQueueCount] = useState<number | null>(null)
+
+  useEffect(() => {
+    const fetchCount = async () => {
+      try {
+        const token = localStorage.getItem('auth_token')
+        if (!token) return
+        const res = await fetch('http://localhost:8000/queue', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        if (res.ok) {
+          const data = await res.json()
+          // Only count pending or in_review documents for the badge
+          const pending = data.documents.filter((d: any) => 
+            d.status.toLowerCase() !== 'approved' && d.status.toLowerCase() !== 'rejected'
+          )
+          setQueueCount(pending.length)
+        }
+      } catch (e) {
+        console.error(e)
+      }
+    }
+    fetchCount()
+    const interval = setInterval(fetchCount, 10000)
+    return () => clearInterval(interval)
+  }, [])
+
   const items = [
     ['queue', 'Review queue', LayoutList],
     ['recent', 'Recently reviewed', FileCheck2],
@@ -74,9 +101,9 @@ function Nav({
         >
           <Icon className="size-4" />
           <span>{label}</span>
-          {id === 'queue' && (
+          {id === 'queue' && queueCount !== null && (
             <span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
-              12
+              {queueCount}
             </span>
           )}
         </button>
