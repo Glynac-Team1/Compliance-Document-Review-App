@@ -130,7 +130,7 @@ Once the containers are running, use:
 
 | Service | URL | Purpose |
 |---|---|---|
-| Frontend | <http://localhost:5173> | React/Vite application |
+| Frontend | <http://localhost:3000> | Next.js application |
 | Backend API | <http://localhost:8000> | FastAPI API |
 | API docs | <http://localhost:8000/docs> | Interactive Swagger UI |
 | Health check | <http://localhost:8000/health> | Backend readiness check |
@@ -229,7 +229,7 @@ PostgreSQL service. To choose another host port, set it when starting Compose:
 POSTGRES_PORT=5434 docker compose up --build
 ```
 
-**Port 8000 or 5173 is already in use**
+**Port 8000 or 3000 is already in use**
 
 Stop the process using the port, or temporarily edit the host-side port mapping in
 `docker-compose.yml`. The port on the right side of each mapping is the container
