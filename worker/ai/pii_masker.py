@@ -38,6 +38,12 @@ class PIIMasker:
         "CURRENCY": "AMOUNT",
     }
 
+    _GENERIC_ROLE_WORDS = {
+        "Investor", "Investors", "Client", "Clients", "Advisor", "Advisors",
+        "Team", "All", "Colleague", "Colleagues", "Sir", "Madam",
+        "Customer", "Customers", "Shareholder", "Shareholders"
+    }
+
     def mask(self, text: str) -> Tuple[str, Dict[str, str]]:
         mapping: Dict[str, str] = {}
         value_to_placeholder: Dict[Tuple[str, str], str] = {}
@@ -54,9 +60,11 @@ class PIIMasker:
             category = self._GROUP_TO_CATEGORY[group_name]
 
             if group_name == "CLIENT_NAME":
-                # Mask only the name itself; leave the title
-                # ("Client", "Dr.", ...) visible in the output.
                 value = match.group("CLIENT_VALUE")
+                # Skip generic non-individual salutations (e.g. "Dear Investor")
+                if value in self._GENERIC_ROLE_WORDS:
+                    continue
+                # Mask only the name itself; leave the title/prefix visible in the output.
                 span_start, span_end = match.span("CLIENT_VALUE")
             else:
                 value = match.group()
@@ -75,7 +83,14 @@ class PIIMasker:
             cursor = span_end
 
         pieces.append(text[cursor:])
-        return "".join(pieces), mapping
+        masked_result = "".join(pieces)
+
+        # Propagate known person entities across any subsequent bare mentions
+        for placeholder, original in mapping.items():
+            if placeholder.startswith("[CLIENT_") and original in masked_result:
+                masked_result = re.sub(rf"\b{re.escape(original)}\b", placeholder, masked_result)
+
+        return masked_result, mapping
 
     def unmask(self, text: str, mapping: Dict[str, str]) -> str:
         for placeholder, original in mapping.items():
