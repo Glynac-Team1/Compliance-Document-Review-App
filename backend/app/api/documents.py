@@ -8,6 +8,8 @@ from models import Role, DocumentStatus, Document
 from app.config import settings
 from app.database import get_db
 from app.core.storage import upload_file_to_minio
+from celery import Celery
+celery_client = Celery("compliance_review", broker=settings.redis_url)
 
 router = APIRouter()
 
@@ -17,7 +19,7 @@ async def upload_document(
     user_token: dict = Depends(require_role(Role.advisor)),
     db: AsyncSession = Depends(get_db)
 ):
-    # Read the file in chunks to prevent Out-Of-Memory attacks
+    # Read the file in chunks 
     MAX_SIZE = settings.max_upload_mb * 1024 * 1024
     file_size = 0
     contents = bytearray()
@@ -29,7 +31,6 @@ async def upload_document(
         contents.extend(chunk)
 
     #Validate MIME type
-    # Convert to bytes, and only check the first 2048 bytes
     mime = magic.from_buffer(bytes(contents[:2048]), mime=True)
     if mime not in settings.allowed_mime_types:
         raise HTTPException(415, f"Unsupported file type: {mime}")
@@ -56,6 +57,7 @@ async def upload_document(
     db.add(new_document)
     await db.commit()
     await db.refresh(new_document)
+    celery_client.send_task("worker.celery_app.analyze_document", args=[str(new_document.id)], queue="document-analysis")
     
     return {
         "document_id": str(new_document.id),
