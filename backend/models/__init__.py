@@ -160,15 +160,30 @@ class Precedent(Base):
     __tablename__ = "precedents"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"), nullable=False)
+
+    # Nullable + unique: synthetic seed rows get a stable hand-authored
+    # key for idempotent re-seeding (same pattern as Rule.rule_key).
+    # Real precedents (created later from actual completed reviews)
+    # leave this NULL and are identified by source_document_id instead
+    # — Postgres unique constraints allow multiple NULLs, so this
+    # doesn't conflict.
+    precedent_key: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
+
+    # Nullable: synthetic seed data has no real Document behind it.
+    source_document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
+
     masked_text: Mapped[str] = mapped_column(String, nullable=False)
-    decision: Mapped[str] = mapped_column(String, nullable=False)
-    comment: Mapped[str | None] = mapped_column(String, nullable=True)
-    # 768-dim to match rules.embedding (BAAI/bge-base-en-v1.5) — plan doc says
-    # 384 but the real Rule model above uses 768; kept consistent with that.
+    decision: Mapped[Decision] = mapped_column(Enum(Decision), nullable=False)
+    comment: Mapped[str] = mapped_column(String, nullable=False)
+
+    # One embedding for the WHOLE masked document (not chunked) —
+    # matches how the brief defines the Precedent Index entity.
     embedding: Mapped[list[float]] = mapped_column(Vector(768))
 
-
+    source: Mapped[str] = mapped_column(String, nullable=False, default="synthetic-seed")
+    embedding_model: Mapped[str] = mapped_column(String, nullable=False, default="BAAI/bge-base-en-v1.5")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    
 class Notification(Base):
     __tablename__ = "notifications"
 
