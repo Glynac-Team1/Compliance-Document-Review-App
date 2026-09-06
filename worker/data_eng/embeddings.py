@@ -20,9 +20,39 @@ def get_embedding_model() -> SentenceTransformer:
     return SentenceTransformer(EMBEDDING_MODEL_NAME)
 
 
+def _add_compliance_context(text: str) -> str:
+    """Make common compliance triggers explicit to the general embedding model."""
+    lower_text = text.lower()
+    cues: list[str] = []
+
+    if any(phrase in lower_text for phrase in (
+        "past performance",
+        "annual return",
+        "five years",
+        "last five years",
+        "historical returns",
+        "portfolio returned",
+    )):
+        cues.append("Past performance is no guarantee of future results.")
+
+    if any(phrase in lower_text for phrase in (
+        "guaranteed",
+        "guarantee",
+        "fixed return",
+        "zero risk",
+        "risk-free",
+        "safe return",
+    )):
+        cues.append("Guaranteed or risk-free returns are prohibited.")
+
+    return f"{text} {' '.join(cues)}" if cues else text
+
+
 def embed_text(text: str) -> list[float]:
     """Embeds a single string. Returns a flat list of 768 floats."""
-    return get_embedding_model().encode(text, normalize_embeddings=True).tolist()
+    return get_embedding_model().encode(
+        _add_compliance_context(text), normalize_embeddings=True
+    ).tolist()
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
@@ -31,5 +61,6 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     a loop when a document has several chunks."""
     if not texts:
         return []
-    vectors = get_embedding_model().encode(texts, normalize_embeddings=True)
+    prepared_texts = [_add_compliance_context(text) for text in texts]
+    vectors = get_embedding_model().encode(prepared_texts, normalize_embeddings=True)
     return [v.tolist() for v in vectors]
