@@ -28,3 +28,10 @@ def upload_file_to_minio(file_bytes: bytearray, original_filename: str, content_
         ContentType=content_type
     )
     return unique_filename
+
+def get_file_url(file_reference: str, expires_in: int = 3600) -> str:
+    return s3_client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": settings.minio_bucket_name, "Key": file_reference},
+        ExpiresIn=expires_in,
+    )

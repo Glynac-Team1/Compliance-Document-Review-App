@@ -11,7 +11,7 @@ from app.core.security import require_role
 from models import Role, DocumentStatus, Document, Review, Decision
 from app.config import settings
 from app.database import get_db
-from app.core.storage import upload_file_to_minio
+from app.core.storage import upload_file_to_minio, get_file_url
 from celery import Celery
 
 celery_client = Celery("compliance_review", broker=settings.redis_url)
@@ -76,6 +76,34 @@ async def upload_document(
 class DecisionRequest(BaseModel):
     decision: Decision
     comment: str
+
+
+@router.get("/{document_id}")
+async def get_document(
+    document_id: uuid.UUID,
+    token: dict = Depends(require_role(Role.officer)),
+    db: AsyncSession = Depends(get_db),
+):
+    doc = await db.scalar(select(Document).where(Document.id == document_id))
+    if doc is None:
+        raise HTTPException(404, "Document not found")
+
+    officer_id = uuid.UUID(token["sub"])
+    db.add(AuditEvent(
+        actor_id=officer_id,
+        document_id=doc.id,
+        action=AuditAction.viewed,
+    ))
+    await db.commit()
+
+    return {
+        "document_id": str(doc.id),
+        "filename": doc.original_filename,
+        "file_type": doc.file_type,
+        "status": doc.status.value,
+        "file_url": get_file_url(doc.file_reference),
+        "uploaded_at": doc.created_at.isoformat(),
+    }
 
 
 @router.post("/{document_id}/claim")
