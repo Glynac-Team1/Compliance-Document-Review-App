@@ -16,25 +16,25 @@ async def list_my_documents(
     user_token: dict = Depends(require_role(Role.advisor)),
     db: AsyncSession = Depends(get_db)
 ):
-    # Grab the advisor's ID from the security token
     advisor_id = user_token["sub"]
-    
-    # Query Postgres for all documents belonging to this advisor, newest first
     query = select(Document).where(Document.advisor_id == advisor_id).order_by(desc(Document.created_at))
     result = await db.execute(query)
-    
-    # Extract the results
     documents = result.scalars().all()
     
-    #  Format for the frontend
     formatted_docs = []
     for doc in documents:
+        # Fetch the latest review for this document
+        rev_query = select(Review).where(Review.document_id == doc.id).order_by(desc(Review.decided_at)).limit(1)
+        rev_result = await db.execute(rev_query)
+        latest_review = rev_result.scalar_one_or_none()
+        
         formatted_docs.append({
             "id": str(doc.id),
-            "filename": doc.original_filename or doc.file_reference, # use original file name or reference if not available
+            "filename": doc.original_filename or doc.file_reference,
             "file_type": doc.file_type.upper(),
             "status": doc.status.value,
-            "upload_date": doc.created_at.strftime("%b %d, %Y") # Formats to "Oct 24, 2024"
+            "upload_date": doc.created_at.strftime("%b %d, %Y"),
+            "officer_comment": latest_review.comment if latest_review else "Document received and queued for compliance review."
         })
         
     return {"documents": formatted_docs}
@@ -59,7 +59,8 @@ async def list_review_queue(
             "submitter": user.name,
             "uploaded": doc.created_at.strftime("%b %d, %Y"),
             "status": doc.status.value,
-            "file_type": doc.file_type
+            "file_type": doc.file_type,
+            "ai_analysis": doc.ai_analysis
         })
         
     return {"documents": queue}
@@ -105,3 +106,23 @@ async def submit_review(
     await db.commit()
     
     return {"message": f"Review recorded as {request.decision.value}"}
+@officer_router.get("/{document_id}/view")
+async def get_document_url(
+    document_id: uuid.UUID,
+    _: dict = Depends(require_role(Role.officer)),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(select(Document).where(Document.id == document_id))
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Not found")
+        
+    from app.core.storage import s3_client
+    from app.config import settings
+    url = s3_client.generate_presigned_url(
+        'get_object',
+        Params={'Bucket': settings.minio_bucket_name, 'Key': doc.file_reference},
+        ExpiresIn=3600
+    )
+    # Rewrite the internal Docker URL to localhost so the browser can reach it
+    return {"url": url.replace("http://minio:9000", "http://localhost:9000")}

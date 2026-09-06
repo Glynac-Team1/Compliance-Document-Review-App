@@ -1,83 +1,262 @@
 'use client'
+import PdfViewer from "./PdfViewer"
 
-import { useMemo, useState } from 'react'
-import Queue from './Queue'
+
+import { useState, useEffect } from 'react'
 import {
+
   Activity,
-  AlertTriangle,
   ArrowDownToLine,
   ArrowLeft,
   BarChart3,
-  Check,
   ChevronLeft,
   ChevronRight,
-  CircleCheck,
-  Clock3,
   FileCheck2,
   FileText,
-  Filter,
-  Gauge,
   LayoutList,
   Maximize2,
   Menu,
   Minus,
-  MoreHorizontal,
   RotateCw,
-  Search,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
-  UserRound,
-  X,
   ZoomIn,
 } from 'lucide-react'
-
-
-
-const flags = [
-  { tone: 'high', severity: 'High severity', passage: '“The strategy is designed to deliver guaranteed returns of 12% annually.”', rule: 'FINRA 2210 — Prohibition of misleading claims', reason: 'Guarantees an investment outcome without qualifying the material risks or conditions.' },
-  { tone: 'medium', severity: 'Review needed', passage: '“Our proprietary model eliminates downside exposure for qualified investors.”', rule: 'SEC Marketing Rule 206(4)-1 — Unsubstantiated claims', reason: 'The absolute language makes a performance claim that requires supporting evidence.' },
-]
-
-const precedents = [
-  ['Q2 Growth Strategy Brief', 'May 2024', '94%', 'Needs revision'],
-  ['Private Markets Overview', 'Feb 2024', '87%', 'Approved'],
-  ['Wealth Planning Campaign', 'Nov 2023', '81%', 'Rejected'],
-]
+import Queue from './Queue'
+import ReviewPanel from './ReviewPanel'
 
 type Document = any
+
 type Screen = 'queue' | 'recent' | 'analytics' | 'settings'
 
 function Brand() {
-  return <div className="flex items-center gap-3 px-5 py-5"><div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground"><ShieldCheck className="size-5" /></div><div><p className="text-sm font-bold tracking-tight">Northstar</p><p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Compliance</p></div></div>
+  return (
+    <div className="flex items-center gap-3 px-5 py-5">
+      <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
+        <ShieldCheck className="size-5" />
+      </div>
+      <div>
+        <p className="text-sm font-bold tracking-tight">Northstar</p>
+        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+          Compliance
+        </p>
+      </div>
+    </div>
+  )
 }
 
-function Nav({ screen, setScreen }: { screen: Screen; setScreen: (screen: Screen) => void }) {
-  const items = [['queue', 'Review queue', LayoutList], ['recent', 'Recently reviewed', FileCheck2], ['analytics', 'Analytics', BarChart3], ['settings', 'Settings', Settings]] as const
-  return <nav className="flex flex-col gap-1 px-3" aria-label="Workspace navigation">{items.map(([id, label, Icon]) => <button key={id} onClick={() => setScreen(id)} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition ${screen === id ? 'bg-primary/[0.08] text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}><Icon className="size-4" />{label}{id === 'queue' && <span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">12</span>}</button>)}</nav>
+function Nav({
+  screen,
+  setScreen,
+}: {
+  screen: Screen
+  setScreen: (screen: Screen) => void
+}) {
+  const [queueCount, setQueueCount] = useState<number | null>(null)
+
+  useEffect(() => {
+    const fetchCount = async () => {
+      try {
+        const token = localStorage.getItem('auth_token')
+        if (!token) return
+        const res = await fetch('http://localhost:8000/queue', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        if (res.ok) {
+          const data = await res.json()
+          // Only count pending or in_review documents for the badge
+          const pending = data.documents.filter((d: any) => 
+            d.status.toLowerCase() !== 'approved' && d.status.toLowerCase() !== 'rejected'
+          )
+          setQueueCount(pending.length)
+        }
+      } catch (e) {
+        console.error(e)
+      }
+    }
+    fetchCount()
+    const interval = setInterval(fetchCount, 10000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const items = [
+    ['queue', 'Review queue', LayoutList],
+    ['recent', 'Recently reviewed', FileCheck2],
+    ['analytics', 'Analytics', BarChart3],
+    ['settings', 'Settings', Settings],
+  ] as const
+
+  return (
+    <nav className="flex flex-col gap-1 px-3" aria-label="Workspace navigation">
+      {items.map(([id, label, Icon]) => (
+        <button
+          key={id}
+          onClick={() => setScreen(id)}
+          className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition ${
+            screen === id
+              ? 'bg-primary/8 text-primary'
+              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+          }`}
+        >
+          <Icon className="size-4" />
+          <span>{label}</span>
+          {id === 'queue' && queueCount !== null && (
+            <span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+              {queueCount}
+            </span>
+          )}
+        </button>
+      ))}
+    </nav>
+  )
 }
 
-function Shell({ children, screen, setScreen }: { children: React.ReactNode; screen: Screen; setScreen: (screen: Screen) => void }) {
-  return <main className="flex min-h-screen bg-background text-foreground"><aside className="hidden w-60 shrink-0 border-r border-border bg-card lg:flex lg:flex-col"><Brand /><Nav screen={screen} setScreen={setScreen} /><div className="mt-auto border-t border-border p-4"><div className="flex items-center gap-3 rounded-lg px-2 py-2"><div className="flex size-8 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">JD</div><div className="min-w-0"><p className="truncate text-xs font-semibold">Jordan Davis</p><p className="truncate text-[11px] text-muted-foreground">Compliance Officer</p></div></div></div></aside><section className="min-w-0 flex-1"><header className="flex h-16 items-center justify-between border-b border-border bg-card px-5 lg:px-8"><div className="flex items-center gap-3"><button className="rounded-md p-2 text-muted-foreground hover:bg-muted lg:hidden" aria-label="Open navigation"><Menu className="size-5" /></button><p className="text-sm font-semibold">{screen === 'queue' ? 'Review queue' : screen === 'recent' ? 'Recently reviewed' : screen === 'analytics' ? 'Analytics' : 'Workspace settings'}</p></div><div className="flex items-center gap-4"><span className="hidden text-xs text-muted-foreground sm:inline">Last synced 2 min ago</span><button className="rounded-md p-2 text-muted-foreground hover:bg-muted" aria-label="Notifications"><Activity className="size-4" /></button><div className="flex size-8 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground lg:hidden">JD</div></div></header>{children}</section></main>
+function Shell({
+  children,
+  screen,
+  setScreen,
+}: {
+  children: React.ReactNode
+  screen: Screen
+  setScreen: (screen: Screen) => void
+}) {
+  const titleMap: Record<Screen, string> = {
+    queue: 'Review queue',
+    recent: 'Recently reviewed',
+    analytics: 'Analytics',
+    settings: 'Workspace settings',
+  }
+
+  return (
+    <main className="flex min-h-screen bg-background text-foreground">
+      <aside className="hidden w-60 shrink-0 border-r border-border bg-card lg:flex lg:flex-col">
+        <Brand />
+        <Nav screen={screen} setScreen={setScreen} />
+
+        <div className="mt-auto border-t border-border p-4">
+          <div className="flex items-center gap-3 rounded-lg px-2 py-2">
+            <div className="flex size-8 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+              JD
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-xs font-semibold">Jordan Davis</p>
+              <p className="truncate text-[11px] text-muted-foreground">Compliance Officer</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <section className="min-w-0 flex-1">
+        <header className="flex h-16 items-center justify-between border-b border-border bg-card px-5 lg:px-8">
+          <div className="flex items-center gap-3">
+            <button
+              className="rounded-md p-2 text-muted-foreground hover:bg-muted lg:hidden"
+              aria-label="Open navigation"
+            >
+              <Menu className="size-5" />
+            </button>
+            <p className="text-sm font-semibold">{titleMap[screen]}</p>
+          </div>
+
+          <div className="flex items-center gap-4">
+              <span className="hidden items-center gap-1.5 text-xs text-emerald-600 sm:flex"><span className="relative flex size-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex size-2 rounded-full bg-emerald-500"></span></span>Live synced</span>
+            <button
+              className="rounded-md p-2 text-muted-foreground hover:bg-muted"
+              aria-label="Notifications"
+            >
+              <Activity className="size-4" />
+            </button>
+            <div className="flex size-8 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground lg:hidden">
+              JD
+            </div>
+          </div>
+        </header>
+
+        {children}
+      </section>
+    </main>
+  )
 }
 
+function Review({ doc, onBack }: { doc: Document; onBack: () => void }) {
+  return (
+    <main className="flex min-h-screen flex-col bg-background lg:h-[calc(100vh-4rem)] lg:overflow-hidden">
+      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card px-5">
+        <button
+          onClick={onBack}
+          className="inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" />
+          Back to review queue
+        </button>
+        <span className="text-border">/</span>
+        <span className="max-w-[220px] truncate text-xs text-muted-foreground">{doc.name}</span>
+      </div>
 
-
-function ToolbarButton({ label, children, onClick }: { label: string; children: React.ReactNode; onClick?: () => void }) { return <button aria-label={label} onClick={onClick} className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground">{children}</button> }
-
-function PdfViewer({ doc }: { doc: Document }) {
-  const [page, setPage] = useState(3); const [zoom, setZoom] = useState(100)
-  return <section className="flex min-h-[620px] flex-1 flex-col bg-muted/35 lg:min-h-0" aria-label="Document viewer"><div className="flex h-[76px] shrink-0 items-center justify-between border-b border-border bg-card px-5"><div className="flex min-w-0 items-center gap-3"><div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-red-50 text-destructive"><FileText className="size-5" /></div><div className="min-w-0"><p className="truncate text-sm font-semibold">{doc.name}</p><p className="mt-0.5 text-xs text-muted-foreground">Uploaded {doc.uploaded} · {doc.size}</p></div></div><span className="hidden rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 sm:inline-flex">Pending review</span></div><div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4 shadow-sm"><div className="flex items-center gap-1"><ToolbarButton label="Previous page" onClick={() => setPage((v) => Math.max(1, v - 1))}><ChevronLeft /></ToolbarButton><span className="min-w-[70px] text-center text-xs font-medium"><span className="rounded border border-input bg-background px-2 py-1">{page}</span><span className="mx-1.5 text-muted-foreground">/ {doc.pages}</span></span><ToolbarButton label="Next page" onClick={() => setPage((v) => Math.min(doc.pages, v + 1))}><ChevronRight /></ToolbarButton></div><div className="flex items-center gap-1 border-l border-border pl-3"><ToolbarButton label="Zoom out" onClick={() => setZoom((v) => Math.max(50, v - 10))}><Minus /></ToolbarButton><span className="w-10 text-center text-xs font-medium text-muted-foreground">{zoom}%</span><ToolbarButton label="Zoom in" onClick={() => setZoom((v) => Math.min(150, v + 10))}><ZoomIn /></ToolbarButton><span className="mx-2 hidden h-5 w-px bg-border sm:block" /><ToolbarButton label="Rotate document"><RotateCw /></ToolbarButton><ToolbarButton label="Fit to page"><Maximize2 /></ToolbarButton><ToolbarButton label="Download document"><ArrowDownToLine /></ToolbarButton></div></div><div className="flex flex-1 justify-center overflow-auto p-5 sm:p-8"><article className="w-full max-w-[680px] shrink-0 bg-card px-8 py-10 shadow-[0_2px_12px_rgba(15,23,42,0.08)] sm:px-16 sm:py-14" style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center', marginBottom: zoom > 100 ? 220 : 0 }}><div className="mb-10 flex items-start justify-between border-b border-border pb-5"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary">Northstar Advisory</p><h2 className="mt-2 font-serif text-2xl font-semibold tracking-tight">{doc.name.replace('.pdf', '')}</h2><p className="mt-1 text-xs text-muted-foreground">Prepared for qualified investors · September 2024</p></div><p className="text-right text-[10px] text-muted-foreground">CONFIDENTIAL<br />PAGE {page} OF {doc.pages}</p></div><div className="flex flex-col gap-6 text-[11px] leading-6 text-muted-foreground"><div><p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-primary">Executive overview</p><p>This submission outlines the proposed client-facing strategy and supporting rationale. The content has been submitted for review against current advertising, disclosure, and communications standards.</p></div><div><p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-primary">Strategy highlights</p><p>We believe the current environment presents a compelling opportunity for investors seeking diversified exposure to innovation-led growth. Our team has identified a select group of high-conviction opportunities across private and public markets.</p></div><div className="rounded border border-destructive/25 bg-red-50/70 p-4 text-foreground"><p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-destructive">Highlighted passage · AI flag 01</p><p className="font-medium">“The strategy is designed to deliver guaranteed returns of 12% annually.”</p></div><div><p>Portfolio construction is supported by a rigorous research process and ongoing review. Historical results are provided for context only and should not be interpreted as a promise of future performance.</p></div><div className="rounded border border-amber-300/70 bg-amber-50/80 p-4 text-foreground"><p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-amber-700">Highlighted passage · AI flag 02</p><p className="font-medium">“Our proprietary model eliminates downside exposure for qualified investors.”</p></div><div><p>Investing involves risk, including possible loss of principal. Please review the accompanying disclosures and consult your advisor before making an investment decision.</p></div></div><div className="mt-12 flex items-end justify-between border-t border-border pt-4 text-[9px] text-muted-foreground"><span>Northstar Advisory · Compliance copy</span><span>NS-Q3-2024</span></div></article></div></section>
+      <div className="flex flex-1 flex-col lg:min-h-0 lg:flex-row">
+        <PdfViewer doc={doc} />
+        <ReviewPanel doc={doc} onSuccess={onBack} />
+      </div>
+    </main>
+  )
 }
 
-function ReviewPanel() {
-  const [tab, setTab] = useState<'AI Assist' | 'Manual Decision'>('AI Assist'); const [decision, setDecision] = useState('Needs Revision'); const [comments, setComments] = useState(''); const [submitted, setSubmitted] = useState(false)
-  return <aside className="flex w-full shrink-0 flex-col border-t border-border bg-card lg:w-[40%] lg:border-l lg:border-t-0" aria-label="Review panel"><div className="flex h-14 shrink-0 items-end gap-6 border-b border-border px-5 sm:px-6"><button onClick={() => setTab('AI Assist')} className={`h-14 border-b-2 px-1 text-sm font-semibold transition ${tab === 'AI Assist' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>AI Assist</button><button onClick={() => setTab('Manual Decision')} className={`h-14 border-b-2 px-1 text-sm font-semibold transition ${tab === 'Manual Decision' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>Manual Decision</button></div><div className="min-h-0 flex-1 overflow-y-auto">{tab === 'AI Assist' ? <div className="flex flex-col gap-7 p-5 sm:p-6"><div className="rounded-lg border border-primary/15 bg-primary/[0.04] p-4"><div className="mb-2 flex items-center gap-2"><Sparkles className="size-4 text-primary" /><h2 className="text-sm font-semibold">AI review summary</h2><span className="ml-auto text-[10px] font-medium uppercase tracking-wider text-muted-foreground">98% confidence</span></div><p className="text-sm leading-6 text-muted-foreground">This document contains two performance-related claims that may conflict with advertising and disclosure requirements. Review the highlighted passages before making a final determination.</p></div><section><div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold">Compliance Flags <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">2</span></h2><button className="text-xs font-medium text-primary hover:underline">View all rules</button></div><div className="flex flex-col gap-3">{flags.map((flag, index) => <div key={flag.rule} className="rounded-lg border border-border bg-card p-4 shadow-sm"><div className="mb-3 flex items-center gap-2">{flag.tone === 'high' ? <AlertTriangle className="size-4 text-destructive" /> : <AlertTriangle className="size-4 text-amber-600" />}<span className={`text-xs font-semibold ${flag.tone === 'high' ? 'text-destructive' : 'text-amber-700'}`}>{flag.severity}</span><span className="ml-auto text-[10px] text-muted-foreground">AI-0{index + 1}</span></div><dl className="flex flex-col gap-2.5 text-xs leading-5"><div><dt className="inline font-semibold">Passage: </dt><dd className="inline text-muted-foreground">{flag.passage}</dd></div><div><dt className="inline font-semibold">Rule: </dt><dd className="inline text-muted-foreground">{flag.rule}</dd></div><div><dt className="inline font-semibold">Reason: </dt><dd className="inline text-muted-foreground">{flag.reason}</dd></div></dl></div>)}</div></section><section><div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold">Precedent matches</h2><button className="text-xs font-medium text-primary hover:underline">View library</button></div><div className="grid gap-2">{precedents.map(([title, date, similarity, decision]) => <div key={title} className="flex items-center gap-3 rounded-lg border border-border p-3"><div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted"><FileText className="size-4 text-muted-foreground" /></div><div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold">{title}</p><p className="mt-1 text-[11px] text-muted-foreground">{date} · {similarity} similar</p></div><span className={`text-[10px] font-semibold ${decision === 'Approved' ? 'text-emerald-700' : decision === 'Rejected' ? 'text-destructive' : 'text-amber-700'}`}>{decision}</span></div>)}</div></section></div> : <form onSubmit={(e) => { e.preventDefault(); setSubmitted(true) }} className="flex min-h-full flex-col p-5 sm:p-6"><div><h2 className="text-sm font-semibold">Final decision</h2><p className="mt-1 text-sm leading-6 text-muted-foreground">Review the AI findings and record your determination for this submission.</p></div><fieldset className="mt-8 flex flex-col gap-3"><legend className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Decision</legend>{['Approve', 'Reject', 'Needs Revision'].map((option) => <label key={option} className={`flex cursor-pointer items-center gap-3 rounded-lg border p-4 text-sm transition ${decision === option ? 'border-primary bg-primary/[0.04]' : 'border-border text-muted-foreground hover:bg-muted/50'}`}><input type="radio" name="decision" value={option} checked={decision === option} onChange={(e) => { setDecision(e.target.value); setSubmitted(false) }} className="size-4 accent-primary" />{option}</label>)}</fieldset><label className="mt-8 flex flex-col gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground" htmlFor="comments">Reviewer comments<textarea id="comments" value={comments} onChange={(e) => { setComments(e.target.value); setSubmitted(false) }} placeholder="Add context for the submitter..." className="min-h-40 resize-y rounded-lg border border-input bg-background p-3 text-sm font-normal normal-case tracking-normal text-foreground outline-none ring-primary placeholder:text-muted-foreground focus:ring-2" /></label><div className="mt-auto flex flex-col gap-3 pt-8"><button type="submit" className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"><CircleCheck className="size-4" />Submit decision</button>{submitted && <p role="status" className="text-center text-xs font-medium text-emerald-700">Decision recorded as “{decision}”.</p>}</div></form>}</div></aside>
+function Placeholder({ screen }: { screen: Screen }) {
+  const titles: Record<Screen, string> = {
+    queue: 'Review queue',
+    recent: 'Recently reviewed',
+    analytics: 'Team analytics',
+    settings: 'Workspace settings',
+  }
+
+  return (
+    <div className="mx-auto max-w-[1100px] p-5 lg:p-8">
+      <div className="rounded-xl border border-border bg-card p-8">
+        <div className="flex size-11 items-center justify-center rounded-xl bg-primary/8 text-primary">
+          <SlidersHorizontal className="size-5" />
+        </div>
+
+        <h1 className="mt-6 text-2xl font-semibold tracking-tight">{titles[screen]}</h1>
+        <p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">
+          This workspace view is ready for your team’s operational data. Connect it to your document service
+          to see live activity, trends, and reviewer preferences here.
+        </p>
+
+        <div className="mt-8 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-lg bg-muted/50 p-4">
+            <p className="text-xs font-semibold">Coming next</p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              Live {screen} data and saved filters.
+            </p>
+          </div>
+          <div className="rounded-lg bg-muted/50 p-4">
+            <p className="text-xs font-semibold">Designed for audit</p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              Every action is traceable and exportable.
+            </p>
+          </div>
+          <div className="rounded-lg bg-muted/50 p-4">
+            <p className="text-xs font-semibold">Role-aware</p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              Views adapt to reviewer permissions.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
-function Review({ doc, onBack }: { doc: Document; onBack: () => void }) { return <main className="flex min-h-screen flex-col bg-background lg:h-[calc(100vh-4rem)] lg:overflow-hidden"><div className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card px-5"><button onClick={onBack} className="inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" />Back to review queue</button><span className="text-border">/</span><span className="max-w-[220px] truncate text-xs text-muted-foreground">{doc.name}</span></div><div className="flex flex-1 flex-col lg:min-h-0 lg:flex-row"><PdfViewer doc={doc} /><ReviewPanel /></div></main> }
+export default function Page() {
+  const [screen, setScreen] = useState<Screen>('queue')
+  const [selected, setSelected] = useState<Document | null>(null)
 
-function Placeholder({ screen }: { screen: Screen }) { const titles = { recent: 'Recently reviewed', analytics: 'Team analytics', settings: 'Workspace settings' }; return <div className="mx-auto max-w-[1100px] p-5 lg:p-8"><div className="rounded-xl border border-border bg-card p-8"><div className="flex size-11 items-center justify-center rounded-xl bg-primary/[0.08] text-primary"><SlidersHorizontal className="size-5" /></div><h1 className="mt-6 text-2xl font-semibold tracking-tight">{titles[screen]}</h1><p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">This workspace view is ready for your team’s operational data. Connect it to your document service to see live activity, trends, and reviewer preferences here.</p><div className="mt-8 grid gap-3 sm:grid-cols-3"><div className="rounded-lg bg-muted/50 p-4"><p className="text-xs font-semibold">Coming next</p><p className="mt-2 text-xs leading-5 text-muted-foreground">Live {screen} data and saved filters.</p></div><div className="rounded-lg bg-muted/50 p-4"><p className="text-xs font-semibold">Designed for audit</p><p className="mt-2 text-xs leading-5 text-muted-foreground">Every action is traceable and exportable.</p></div><div className="rounded-lg bg-muted/50 p-4"><p className="text-xs font-semibold">Role-aware</p><p className="mt-2 text-xs leading-5 text-muted-foreground">Views adapt to reviewer permissions.</p></div></div></div></div> }
-
-export default function Page() { const [screen, setScreen] = useState<Screen>('queue'); const [selected, setSelected] = useState<Document | null>(null); return selected ? <Review doc={selected} onBack={() => setSelected(null)} /> : <Shell screen={screen} setScreen={setScreen}>{screen === 'queue' ? <Queue onReview={setSelected} /> : <Placeholder screen={screen} />}</Shell> }
+  return selected ? (
+    <Review doc={selected} onBack={() => setSelected(null)} />
+  ) : (
+    <Shell screen={screen} setScreen={setScreen}>
+      {screen === 'queue' ? <Queue onReview={setSelected} /> : <Placeholder screen={screen} />}
+    </Shell>
+  )
+}

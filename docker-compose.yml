@@ -72,6 +72,7 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
     volumes:
+      - ./worker:/app/worker
       - embedding_cache:/home/appuser/.cache/huggingface
     depends_on:
       postgres:

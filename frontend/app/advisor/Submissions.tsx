@@ -87,10 +87,6 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
   const totalNeedsReview = displayList.filter((doc) => (doc.status || '').toLowerCase() !== 'approved').length
 
   const [selectedDocument, setSelectedDocument] = useState<any | null>(null)
-  const complianceComments: Record<string, string> = {
-    'Q3 Marketing Brochure': 'Approved for client distribution.',
-    'Client Risk Assessment': 'Compliance is reviewing the suitability rationale.',
-  }
     // --- PAGINATION MATH ---
   const totalPages = Math.max(1, Math.ceil(displayList.length / itemsPerPage))
   const startIndex = (currentPage - 1) * itemsPerPage
@@ -130,7 +126,7 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
                 <StatusBadge status={selectedDocument.status} />
               </div>
               <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                {complianceComments[selectedDocument.name || selectedDocument.filename] ||
+                {selectedDocument.officer_comment ||
                   'Document received and queued for compliance review.'}
               </p>
             </div>

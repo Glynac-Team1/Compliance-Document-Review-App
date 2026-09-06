@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY backend/requirements.txt ./backend-requirements.txt
 COPY worker/requirements.txt ./worker-requirements.txt
-RUN pip install --no-cache-dir --prefix=/install -r backend-requirements.txt -r worker-requirements.txt
+RUN pip install --default-timeout=1000 --no-cache-dir --prefix=/install -r backend-requirements.txt -r worker-requirements.txt
 
 FROM python:3.12-slim
 
@@ -19,7 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /install /usr/local
-RUN useradd --create-home --uid 1000 appuser
+RUN useradd --create-home --uid 1000 appuser \
+    && mkdir -p /home/appuser/.cache/huggingface \
+    && chown -R appuser:appuser /home/appuser/.cache
 
 COPY --chown=appuser:appuser backend/app ./app
 COPY --chown=appuser:appuser backend/models ./models

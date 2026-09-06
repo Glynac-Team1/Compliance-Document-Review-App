@@ -1,7 +1,7 @@
 import enum, uuid
 from datetime import datetime
 from sqlalchemy import Enum, ForeignKey, String, DateTime, Boolean
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from pgvector.sqlalchemy import Vector
 from app.database import Base
@@ -43,6 +43,7 @@ class Document(Base):
     file_type: Mapped[str] = mapped_column(String, nullable=False)
     previous_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    ai_analysis: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # TODO: confirm with team — redundant with AIAnalysis/Flag tables below?
 
     # --- added for revision threading (plan §5 / §6) ---
     thread_root_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id"), nullable=True)

@@ -14,7 +14,7 @@ from app.database import get_db
 from app.core.storage import upload_file_to_minio
 from celery import Celery
 
-celery_client = Celery(broker=settings.redis_url)
+celery_client = Celery("compliance_review", broker=settings.redis_url)
 
 router = APIRouter()
 
@@ -25,7 +25,7 @@ async def upload_document(
     user_token: dict = Depends(require_role(Role.advisor)),
     db: AsyncSession = Depends(get_db)
 ):
-    # Read the file in chunks to prevent Out-Of-Memory attacks
+    # Read the file in chunks
     MAX_SIZE = settings.max_upload_mb * 1024 * 1024
     file_size = 0
     contents = bytearray()
@@ -62,7 +62,7 @@ async def upload_document(
     await db.commit()
     await db.refresh(new_document)
 
-    celery_client.send_task("worker.celery_app.analyze_document", args=[str(new_document.id)])
+    celery_client.send_task("worker.celery_app.analyze_document", args=[str(new_document.id)], queue="document-analysis")
     db.add(AIAnalysis(document_id=new_document.id, status=AnalysisStatus.pending))
     await db.commit()
 
