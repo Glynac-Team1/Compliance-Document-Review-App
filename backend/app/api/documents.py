@@ -63,6 +63,8 @@ async def upload_document(
     await db.refresh(new_document)
 
     celery_client.send_task("worker.celery_app.analyze_document", args=[str(new_document.id)])
+    db.add(AIAnalysis(document_id=new_document.id, status=AnalysisStatus.pending))
+    await db.commit()
 
     return {
         "document_id": str(new_document.id),
