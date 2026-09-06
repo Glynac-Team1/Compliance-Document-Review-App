@@ -105,7 +105,73 @@ class TestPIIMasker(unittest.TestCase):
         self.assertIn("explanation", flag)
         self.assertIn(flag["severity"], ["HIGH", "MEDIUM", "LOW"])
 
+    def test_groq_outbound_payload_structure(self):
+        """Verifies Groq provider payload format conforming to OpenAI chat completions."""
+        groq_engine = GeminiAssistEngine(api_key="mock_groq_key", provider="groq")
+        text = "Client Eleanor Vance email eleanor@vance.io invested $100,000."
+        payload, mapping = groq_engine.get_outbound_payload(text)
+        self.assertIn("model", payload)
+        self.assertIn("messages", payload)
+        self.assertEqual(payload["response_format"], {"type": "json_object"})
+        self.assertNotIn("eleanor@vance.io", json.dumps(payload))
+        self.assertIn("[EMAIL_1]", json.dumps(payload))
+
+    def test_pydantic_schema_normalization(self):
+        """Tests that Pydantic models normalize string casing and validate schemas."""
+        from worker.ai.schemas import ComplianceFlag, AIAnalysisResult, Severity
+        flag = ComplianceFlag(
+            passage="Guaranteed 10%",
+            matched_rule_id="RULE_FINRA_2210_NO_GUARANTEES",
+            severity="high",  # lowercase
+            explanation="Prohibited guarantee"
+        )
+        self.assertEqual(flag.severity, Severity.HIGH)
+
+        result = AIAnalysisResult(
+            summary="Test summary",
+            flags=[flag]
+        )
+        self.assertEqual(len(result.flags), 1)
+        self.assertFalse(result.degraded)
+
+    def test_missing_disclosure_flag_validation(self):
+        """Verifies [MISSING MANDATORY DISCLOSURE] flags are valid."""
+        from worker.ai.schemas import ComplianceFlag, Severity
+        flag = ComplianceFlag(
+            passage="[MISSING MANDATORY DISCLOSURE]",
+            matched_rule_id="RULE_DISCLOSURE_PAST_PERFORMANCE",
+            severity=Severity.HIGH,
+            explanation="Past performance discussed but mandatory disclaimer is absent."
+        )
+        self.assertEqual(flag.passage, "[MISSING MANDATORY DISCLOSURE]")
+        self.assertEqual(flag.severity, Severity.HIGH)
+
+    def test_clean_json_markdown_fences(self):
+        """Verifies stripping of markdown code fences."""
+        raw = "```json\n{\"summary\": \"Test\", \"flags\": []}\n```"
+        cleaned = GeminiAssistEngine._clean_json_string(raw)
+        self.assertEqual(cleaned, '{"summary": "Test", "flags": []}')
+
+    def test_all_sample_fixtures_privacy_wall(self):
+        """Asserts that all synthetic sample documents have 0 PII leaks in outbound payloads."""
+        import glob
+        import os
+        fixtures = glob.glob(os.path.join("fixtures", "sample_docs", "*.txt"))
+        self.assertGreaterEqual(len(fixtures), 4)
+        for path in fixtures:
+            with open(path, "r", encoding="utf-8") as f:
+                doc_text = f.read()
+            payload, mapping = self.engine.get_outbound_payload(doc_text)
+            payload_str = json.dumps(payload)
+            for placeholder, original in mapping.items():
+                self.assertNotIn(
+                    original.lower(),
+                    payload_str.lower(),
+                    f"PII Leak in fixture {path} for entity {original}"
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
