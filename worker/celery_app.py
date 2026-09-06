@@ -42,7 +42,8 @@ def analyze_document(document_id: str) -> dict:
                 await db.refresh(ai_record)
 
             # Download the file from MinIO storage
-            temp_file = f"/tmp/{doc.file_reference}"
+            import tempfile
+            temp_file = os.path.join(tempfile.gettempdir(), doc.file_reference)
             s3_client.download_file(settings.minio_bucket_name, doc.file_reference, temp_file)
 
             try:
