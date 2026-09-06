@@ -12,34 +12,26 @@ Run inside the worker container:
 
 import asyncio
 import logging
-from functools import lru_cache
 
-from sentence_transformers import SentenceTransformer
 from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
 from models import Rule
 from worker.ai.rules_corpus import COMPLIANCE_RULES_CORPUS
 
+# Reuse the centralized embedding module
+from worker.data_eng.embeddings import embed_text, EMBEDDING_MODEL_NAME
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-EMBEDDING_MODEL_NAME = "BAAI/bge-base-en-v1.5"  # 768-dim, matches the existing `rules.embedding` column
+
 CORPUS_VERSION = "v1"
-
-
-@lru_cache(maxsize=1)
-def _model() -> SentenceTransformer:
-    # Loaded once per process, not once per rule — embedding 14 rules
-    # with a freshly-loaded model each time would be needlessly slow.
-    logger.info("Loading embedding model %s (first run downloads ~440MB)...", EMBEDDING_MODEL_NAME)
-    return SentenceTransformer(EMBEDDING_MODEL_NAME)
 
 
 async def upsert_rule(session, rule_dict: dict) -> str:
     """Insert a new rule row, or update an existing one in place if its
     rule_key already exists. Returns 'inserted' or 'updated' for logging."""
-    embedding = _model().encode(rule_dict["text"], normalize_embeddings=True).tolist()
+    embedding = embed_text(rule_dict["text"])
 
     result = await session.execute(select(Rule).where(Rule.rule_key == rule_dict["id"]))
     existing = result.scalar_one_or_none()
