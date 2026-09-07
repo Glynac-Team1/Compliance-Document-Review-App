@@ -1,13 +1,38 @@
 'use client'
 
-import { useState } from 'react'
-import { AlertTriangle, CircleCheck, Info, Sparkles } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { AlertTriangle, CircleCheck, Info, Sparkles, History } from 'lucide-react'
 
 export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: () => void }) {
-  const [tab, setTab] = useState<'AI Assist' | 'Manual Decision'>('AI Assist')
+  const [tab, setTab] = useState<'AI Assist' | 'Manual Decision' | 'Thread History'>('AI Assist')
   const [decision, setDecision] = useState('Needs Revision')
   const [comments, setComments] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [threadData, setThreadData] = useState<any | null>(null)
+  const [isLoadingThread, setIsLoadingThread] = useState(false)
+
+  useEffect(() => {
+    if (!doc?.id) return
+    const fetchThread = async () => {
+      setIsLoadingThread(true)
+      try {
+        const token = localStorage.getItem('auth_token')
+        if (!token) return
+        const res = await fetch(`http://localhost:8000/documents/${doc.id}/thread`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        if (res.ok) {
+          const data = await res.json()
+          setThreadData(data)
+        }
+      } catch (err) {
+        console.error('Failed to load thread history', err)
+      } finally {
+        setIsLoadingThread(false)
+      }
+    }
+    fetchThread()
+  }, [doc.id])
 
   const aiData = doc.ai_analysis || {
     summary: 'AI analysis is currently processing or unavailable.',
@@ -44,7 +69,7 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
 
   return (
     <aside className="flex w-full shrink-0 flex-col border-t border-border bg-card lg:w-[40%] lg:border-l lg:border-t-0">
-      <div className="flex h-14 shrink-0 items-end gap-6 border-b border-border px-5 sm:px-6">
+      <div className="flex h-14 shrink-0 items-end gap-5 border-b border-border px-5 sm:px-6">
         <button
           onClick={() => setTab('AI Assist')}
           className={`h-14 border-b-2 px-1 text-sm font-semibold transition ${
@@ -64,6 +89,22 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
           }`}
         >
           Manual Decision
+        </button>
+        <button
+          onClick={() => setTab('Thread History')}
+          className={`flex h-14 items-center gap-1.5 border-b-2 px-1 text-sm font-semibold transition ${
+            tab === 'Thread History'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <History className="size-3.5" />
+          <span>Thread History</span>
+          {threadData?.total_versions > 1 && (
+            <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+              v{threadData.total_versions}
+            </span>
+          )}
         </button>
       </div>
 
@@ -183,6 +224,86 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
               </button>
             </div>
           </form>
+        )}
+
+        {tab === 'Thread History' && (
+          <div className="flex flex-col gap-5 p-5 sm:p-6">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Revision Thread</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {threadData?.total_versions || 1} version(s) in this submission history
+              </p>
+            </div>
+
+            {isLoadingThread ? (
+              <div className="flex justify-center p-8 text-xs text-muted-foreground">Loading thread history...</div>
+            ) : threadData?.versions?.length ? (
+              <div className="relative ml-2 space-y-5 border-l border-border/80 pl-4">
+                {threadData.versions.map((ver: any) => {
+                  const isCurrent = ver.document_id === doc.id
+                  return (
+                    <div key={ver.document_id} className="relative">
+                      <div
+                        className={`absolute -left-[21px] top-1.5 size-2.5 rounded-full border-2 border-card ${
+                          isCurrent ? 'bg-primary ring-2 ring-primary/20' : 'bg-muted-foreground/40'
+                        }`}
+                      />
+
+                      <div
+                        className={`rounded-lg border p-4 transition ${
+                          isCurrent ? 'border-primary/30 bg-primary/5' : 'border-border bg-card'
+                        }`}
+                      >
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-bold text-primary">
+                              v{ver.version}
+                            </span>
+                            <span className="max-w-[140px] truncate text-xs font-semibold text-foreground">
+                              {ver.filename}
+                            </span>
+                          </div>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                              ver.status === 'approved'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : ver.status === 'needs_revision'
+                                ? 'bg-amber-100 text-amber-800'
+                                : ver.status === 'rejected'
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-blue-100 text-blue-800'
+                            }`}
+                          >
+                            {ver.status}
+                          </span>
+                        </div>
+
+                        {ver.review ? (
+                          <div className="mt-3 rounded-md bg-muted/50 p-3 text-xs">
+                            <div className="mb-1 flex items-center justify-between text-muted-foreground">
+                              <span className="font-semibold text-foreground">
+                                {ver.review.officer_name || 'Compliance Officer'}
+                              </span>
+                              <span>
+                                {ver.review.decided_at
+                                  ? new Date(ver.review.decided_at).toLocaleDateString()
+                                  : ''}
+                              </span>
+                            </div>
+                            <p className="italic text-muted-foreground">&ldquo;{ver.review.comment}&rdquo;</p>
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-xs text-muted-foreground">Under active review</p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No prior revision history found.</p>
+            )}
+          </div>
         )}
       </div>
     </aside>

@@ -8,9 +8,10 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 
 from app.config import settings
-from models import Document, AIAnalysis, Flag, AnalysisStatus, Severity, Rule
+from models import Document, AIAnalysis, Flag, AnalysisStatus, Severity, Rule, PIIMapping
 from app.core.storage import s3_client
 from worker.ai.gemini_assist import GeminiAssistEngine
+from worker.ai.pii_masker import PIIMasker
 from worker.data_eng.extractors import TextExtractor
 
 celery_app = Celery("compliance_review", broker=settings.redis_url, backend=settings.redis_url)
@@ -47,18 +48,72 @@ def analyze_document(document_id: str) -> dict:
             s3_client.download_file(settings.minio_bucket_name, doc.file_reference, temp_file)
 
             try:
-                # Extract text from the file
+                # 1. Text extraction from local file buffer
                 text = TextExtractor.extract(temp_file)
-                
-                # Run AI Analysis
+
+                # 2. Server-side PII masking (Strict Privacy Boundary)
+                # Sensitive entities (names, emails, phones, SSNs, accounts) are replaced
+                # with stable placeholders prior to vector search or external AI calls.
+                masker = PIIMasker()
+                masked_text, pii_mapping = masker.mask(text)
+
+                # Persist mapping to PostgreSQL (pii_mappings) to satisfy the zero-PII boundary constraint.
+                # Delete prior mappings for this document to ensure idempotent task retries.
+                await db.execute(delete(PIIMapping).where(PIIMapping.document_id == doc_uuid))
+                for placeholder, original in pii_mapping.items():
+                    db.add(
+                        PIIMapping(
+                            document_id=doc_uuid,
+                            placeholder=placeholder,
+                            original_value=original,
+                        )
+                    )
+                await db.flush()
+
+                # 3. Semantic Rule Retrieval (RAG via pgvector)
+                # Retrieves compliance rules tailored to the document content.
+                # Gracefully falls back to None if local embedding inference is offline.
+                rules_context = None
+                try:
+                    from worker.data_eng.chunking import chunk_document
+                    from worker.data_eng.retrieval import retrieve_rules_for_document
+
+                    chunks = chunk_document(masked_text)
+                    retrieved_rules = await retrieve_rules_for_document(db, chunks)
+                    if retrieved_rules:
+                        rules_context = [
+                            {"id": r.rule_key, "category": r.rule_type, "text": r.text}
+                            for r in retrieved_rules
+                        ]
+                except Exception as retrieval_err:
+                    print(f"[WARN] Vector rule retrieval bypassed or unavailable: {retrieval_err}")
+                    rules_context = None
+
+                # 4. Outbound LLM Generation
+                # Dispatches only sanitized text and retrieved rules to external AI providers.
                 ai_engine = GeminiAssistEngine()
-                analysis = ai_engine.analyze_document(text)
-                
+                analysis = ai_engine.analyze_document(masked_text, rules_context=rules_context)
+
+                # 5. Entity Unmasking for Authorized Officer Display
+                # Re-inject original values into the summary and flag excerpts before persistence.
+                unmasked_summary = masker.unmask(analysis.get("summary", ""), pii_mapping)
+                analysis["summary"] = unmasked_summary
+
+                unmasked_flags = []
+                for flag in analysis.get("flags", []):
+                    unmasked_flags.append({
+                        "passage": masker.unmask(flag.get("passage", ""), pii_mapping),
+                        "matched_rule_id": flag.get("matched_rule_id"),
+                        "severity": flag.get("severity", "medium"),
+                        "explanation": masker.unmask(flag.get("explanation", ""), pii_mapping),
+                    })
+                analysis["flags"] = unmasked_flags
+
                 # Maintain legacy document column for backward compatibility
                 doc.ai_analysis = analysis
 
                 # Process and persist flags
-                raw_flags = analysis.get("flags", [])
+                raw_flags = unmasked_flags
                 rule_keys = [f.get("matched_rule_id") for f in raw_flags if f.get("matched_rule_id")]
 
                 rules_by_key = {}

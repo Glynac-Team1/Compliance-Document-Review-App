@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { ChevronLeft, ChevronRight, FileText, Filter, Search, X, Upload } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight, FileText, Filter, Search, X, Upload, RefreshCw, Loader2, History } from 'lucide-react'
 
 const fallbackSubmissions = [
   { name: 'Q3 Marketing Brochure', date: 'Oct 24, 2024', type: 'PDF', status: 'Approved' },
@@ -34,39 +34,107 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
   const [currentPage, setCurrentPage] = useState(1)
   const [statusFilter, setStatusFilter] = useState('All')
   const itemsPerPage = 5
-  // Automatically go back to page 1 if the user searches for something
-  useEffect(() => {
-    setCurrentPage(1)
-
-  }, [searchQuery, statusFilter])
 
   const [isLoading, setIsLoading] = useState(true)
+  const [threadData, setThreadData] = useState<any | null>(null)
+  const [isLoadingThread, setIsLoadingThread] = useState(false)
+  const [isResubmitting, setIsResubmitting] = useState(false)
+  const resubmitInputRef = useRef<HTMLInputElement>(null)
+
+  const fetchDocuments = async () => {
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) return
+
+      const response = await fetch('http://localhost:8000/documents/mine', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setDocuments(data.documents)
+      }
+    } catch (error) {
+      console.error('Error fetching documents:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const fetchDocuments = async () => {
+    fetchDocuments()
+  }, [])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, statusFilter])
+
+  const [selectedDocument, setSelectedDocument] = useState<any | null>(null)
+
+  useEffect(() => {
+    if (!selectedDocument?.id) {
+      setThreadData(null)
+      return
+    }
+
+    const fetchThread = async () => {
+      setIsLoadingThread(true)
       try {
         const token = localStorage.getItem('auth_token')
         if (!token) return
-
-        const response = await fetch('http://localhost:8000/documents/mine', {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+        const res = await fetch(`http://localhost:8000/documents/${selectedDocument.id}/thread`, {
+          headers: { Authorization: `Bearer ${token}` }
         })
-
-        if (response.ok) {
-          const data = await response.json()
-          setDocuments(data.documents)
+        if (res.ok) {
+          const data = await res.json()
+          setThreadData(data)
         }
-      } catch (error) {
-        console.error('Error fetching documents:', error)
+      } catch (err) {
+        console.error('Failed to load document thread', err)
       } finally {
-        setIsLoading(false)
+        setIsLoadingThread(false)
       }
     }
 
-    fetchDocuments()
-  }, [])
+    fetchThread()
+  }, [selectedDocument])
+
+  const handleResubmit = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedDocument?.id) return
+
+    setIsResubmitting(true)
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('previous_version_id', selectedDocument.id)
+
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        alert('Authentication required')
+        return
+      }
+      const res = await fetch('http://localhost:8000/documents', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.detail || 'Resubmission failed')
+      }
+      alert('Revision submitted successfully! It is now pending compliance review.')
+      await fetchDocuments()
+      setSelectedDocument(null)
+    } catch (err: any) {
+      alert('Resubmission error: ' + err.message)
+    } finally {
+      setIsResubmitting(false)
+      if (resubmitInputRef.current) resubmitInputRef.current.value = ''
+    }
+  }
 
     //  master list (either from DB or fallback)
   const baseList = documents.length > 0 ? documents : fallbackSubmissions
@@ -86,7 +154,6 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
   const totalApproved = displayList.filter((doc) => (doc.status || '').toLowerCase() === 'approved').length
   const totalNeedsReview = displayList.filter((doc) => (doc.status || '').toLowerCase() !== 'approved').length
 
-  const [selectedDocument, setSelectedDocument] = useState<any | null>(null)
     // --- PAGINATION MATH ---
   const totalPages = Math.max(1, Math.ceil(displayList.length / itemsPerPage))
   const startIndex = (currentPage - 1) * itemsPerPage
@@ -130,16 +197,62 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
                   'Document received and queued for compliance review.'}
               </p>
             </div>
+
+            {threadData && threadData.versions?.length > 1 && (
+              <div className="mt-4 rounded-lg border border-border bg-card p-3">
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <History className="size-3.5 text-primary" />
+                  <span>Revision Thread ({threadData.total_versions} versions)</span>
+                </div>
+                <div className="max-h-36 space-y-2 overflow-y-auto pr-1">
+                  {threadData.versions.map((ver: any) => (
+                    <div
+                      key={ver.document_id}
+                      className={`flex items-center justify-between rounded-md p-2 text-xs transition ${
+                        ver.document_id === selectedDocument.id ? 'bg-primary/5 font-medium' : 'hover:bg-muted/40'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="rounded bg-primary/10 px-1.5 py-0.5 font-bold text-primary">v{ver.version}</span>
+                        <span className="max-w-[180px] truncate text-foreground">{ver.filename}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={ver.status} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="mt-5 flex items-center justify-between border-t border-border pt-4 text-xs text-muted-foreground">
               <span>
                 {selectedDocument.type || selectedDocument.file_type} · Uploaded {selectedDocument.date || selectedDocument.upload_date}
               </span>
-              <button
-                onClick={() => setSelectedDocument(null)}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
-              >
-                Done
-              </button>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={resubmitInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={handleResubmit}
+                />
+                {selectedDocument.status?.toLowerCase() === 'needs_revision' && (
+                  <button
+                    onClick={() => resubmitInputRef.current?.click()}
+                    disabled={isResubmitting}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    {isResubmitting ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+                    Resubmit Revision
+                  </button>
+                )}
+                <button
+                  onClick={() => setSelectedDocument(null)}
+                  className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
+                >
+                  Done
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -1,13 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form
+from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import update, select
 from pydantic import BaseModel
 import magic
 import asyncio
 import uuid
-from models import AIAnalysis, Flag, AnalysisStatus, AuditEvent, AuditAction
+from models import AIAnalysis, Flag, AnalysisStatus, AuditEvent, AuditAction, User
 
-from app.core.security import require_role
+from app.core.security import require_role, require_any_role
 from models import Role, DocumentStatus, Document, Review, Decision
 from app.config import settings
 from app.database import get_db
@@ -22,9 +23,12 @@ router = APIRouter()
 @router.post("")
 async def upload_document(
     file: UploadFile,
+    previous_version_id: Optional[uuid.UUID] = Form(None),
     user_token: dict = Depends(require_role(Role.advisor)),
     db: AsyncSession = Depends(get_db)
 ):
+    advisor_id = uuid.UUID(user_token["sub"]) if isinstance(user_token["sub"], str) else user_token["sub"]
+
     # Read the file in chunks
     MAX_SIZE = settings.max_upload_mb * 1024 * 1024
     file_size = 0
@@ -50,15 +54,50 @@ async def upload_document(
 
     file_ext = file.filename.split(".")[-1] if "." in file.filename else "unknown"
 
+    thread_root_id = None
+    audit_action = AuditAction.submitted
+
+    if previous_version_id:
+        prev_result = await db.execute(select(Document).where(Document.id == previous_version_id))
+        prev_doc = prev_result.scalar_one_or_none()
+        if not prev_doc:
+            raise HTTPException(404, "Previous version document not found")
+        if prev_doc.advisor_id != advisor_id:
+            raise HTTPException(403, "You cannot resubmit a document you do not own")
+        if prev_doc.status != DocumentStatus.needs_revision:
+            raise HTTPException(
+                400,
+                f"Cannot resubmit document with status '{prev_doc.status.value}'. Only documents with 'needs_revision' can be resubmitted."
+            )
+
+        thread_root_id = prev_doc.thread_root_id or prev_doc.id
+        audit_action = AuditAction.resubmitted
+
+        if prev_doc.thread_root_id is None:
+            prev_doc.thread_root_id = prev_doc.id
+            db.add(prev_doc)
+
+    new_doc_id = uuid.uuid4()
+    if not thread_root_id:
+        thread_root_id = new_doc_id
+
     new_document = Document(
-        advisor_id=user_token["sub"],
+        id=new_doc_id,
+        advisor_id=advisor_id,
         status=DocumentStatus.pending,
         original_filename=file.filename,
         file_reference=file_reference,
-        file_type=file_ext
+        file_type=file_ext,
+        previous_version_id=previous_version_id,
+        thread_root_id=thread_root_id
     )
 
     db.add(new_document)
+    db.add(AuditEvent(
+        actor_id=advisor_id,
+        document_id=new_document.id,
+        action=audit_action,
+    ))
     await db.commit()
     await db.refresh(new_document)
 
@@ -69,7 +108,9 @@ async def upload_document(
     return {
         "document_id": str(new_document.id),
         "status": new_document.status.value,
-        "filename": file.filename
+        "filename": file.filename,
+        "thread_root_id": str(new_document.thread_root_id),
+        "previous_version_id": str(new_document.previous_version_id) if new_document.previous_version_id else None
     }
 
 
@@ -197,3 +238,76 @@ async def submit_decision(
     await db.commit()
 
     return {"document_id": str(doc.id), "status": doc.status.value}
+
+
+@router.get("/{document_id}/thread")
+async def get_document_thread(
+    document_id: uuid.UUID,
+    user_token: dict = Depends(require_any_role(Role.advisor, Role.officer)),
+    db: AsyncSession = Depends(get_db),
+):
+    doc_result = await db.execute(select(Document).where(Document.id == document_id))
+    target_doc = doc_result.scalar_one_or_none()
+    if not target_doc:
+        raise HTTPException(404, "Document not found")
+
+    caller_role = user_token.get("role")
+    caller_id = uuid.UUID(user_token["sub"]) if isinstance(user_token["sub"], str) else user_token["sub"]
+
+    # Enforce ownership if requester is an advisor
+    if caller_role == Role.advisor.value and target_doc.advisor_id != caller_id:
+        raise HTTPException(403, "Access denied to this document thread")
+
+    root_id = target_doc.thread_root_id or target_doc.id
+
+    # Retrieve all documents belonging to this thread
+    thread_query = (
+        select(Document)
+        .where((Document.thread_root_id == root_id) | (Document.id == root_id))
+        .order_by(Document.created_at.asc())
+    )
+    thread_result = await db.execute(thread_query)
+    docs = thread_result.scalars().all()
+
+    versions = []
+    for idx, doc in enumerate(docs, start=1):
+        # Fetch review and decision details
+        rev_result = await db.execute(select(Review).where(Review.document_id == doc.id))
+        review = rev_result.scalar_one_or_none()
+
+        # Fetch AI analysis status
+        ai_result = await db.execute(select(AIAnalysis).where(AIAnalysis.document_id == doc.id))
+        ai_analysis = ai_result.scalar_one_or_none()
+
+        officer_name = None
+        if review:
+            officer_result = await db.execute(select(User).where(User.id == review.officer_id))
+            officer = officer_result.scalar_one_or_none()
+            if officer:
+                officer_name = officer.name
+
+        versions.append({
+            "version": idx,
+            "document_id": str(doc.id),
+            "filename": doc.original_filename,
+            "file_type": doc.file_type,
+            "status": doc.status.value,
+            "created_at": doc.created_at.isoformat() if doc.created_at else None,
+            "previous_version_id": str(doc.previous_version_id) if doc.previous_version_id else None,
+            "review": {
+                "decision": review.decision.value,
+                "comment": review.comment,
+                "decided_at": review.decided_at.isoformat() if review.decided_at else None,
+                "officer_name": officer_name,
+            } if review else None,
+            "ai_analysis": {
+                "status": ai_analysis.status.value,
+                "summary": ai_analysis.summary,
+            } if ai_analysis else None,
+        })
+
+    return {
+        "thread_root_id": str(root_id),
+        "total_versions": len(versions),
+        "versions": versions,
+    }

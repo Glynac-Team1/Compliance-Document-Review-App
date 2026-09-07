@@ -38,3 +38,13 @@ def require_role(required: Role):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
         return token
     return dependency
+
+
+def require_any_role(*required_roles: Role):
+    """A dependency factory that authorizes a user if they hold any of the given roles."""
+    def dependency(token: dict = Depends(decode_session_token)) -> dict:
+        allowed = {r.value for r in required_roles}
+        if token.get("role") not in allowed:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
+        return token
+    return dependency

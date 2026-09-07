@@ -1,3 +1,7 @@
+node_modules
+dist
+.vite
+*.tsbuildinfo
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
@@ -43,5 +47,3 @@ node_modules
 dist
 .vite
 *.tsbuildinfo
-.next/
-node_modules/

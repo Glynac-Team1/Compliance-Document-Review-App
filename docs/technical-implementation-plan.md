@@ -139,6 +139,8 @@ PENDING_REVIEW → (officer decides) → APPROVED        [terminal]
 Rules:
 - Only `pending_review` documents are officer-actionable; enforce in the endpoint, not just by hiding the button.
 - A resubmission is a **new row**, not an edit of the old one — the old row is immutable history.
+- Root uploads set `thread_root_id = document.id` and log `audit_events.action = submitted`.
+- Resubmissions validate that `previous_version_id` exists, is owned by the advisor, and has status `needs_revision`. They inherit `thread_root_id = previous_doc.thread_root_id or previous_doc.id`, set `status = pending`, and log `audit_events.action = resubmitted`.
 - Every transition writes exactly one `audit_events` row and, on officer decisions, exactly one `notifications` row for the advisor.
 
 ---
@@ -149,17 +151,56 @@ Rules:
 |---|---|---|
 | `POST /auth/signup` | public | Create user with fixed role |
 | `POST /auth/login` | public | Session/JWT issuance |
-| `POST /documents` | advisor | Upload; triggers async analysis job |
-| `GET /documents/mine` | advisor | Dashboard list + status |
-| `GET /documents/{id}/thread` | advisor, officer | Full revision thread |
+| `POST /documents` | advisor | Upload or resubmit (multipart/form-data: `file`, optional `previous_version_id`); triggers async analysis job |
+| `GET /documents/mine` | advisor | Dashboard list + status + latest officer review comment |
+| `GET /documents/{id}/thread` | advisor, officer | Full revision thread history (ordered v1..vN, reviews, officer comments, AI statuses) |
 | `GET /queue` | officer | Filterable pending queue |
+| `GET /queue/{id}/view` | officer | Secure temporary MinIO presigned URL for inline rendering / download |
 | `GET /documents/{id}` | officer | Original file + metadata (logs a `viewed` audit event) |
 | `GET /documents/{id}/analysis` | officer | Cached AI summary/flags; `202` while pending, `503 {error_type}` on AI failure |
 | `POST /documents/{id}/review` | officer | Record decision + comment; triggers notification |
 | `GET /notifications` | advisor | Unread + read list |
 | `POST /notifications/{id}/read` | advisor | Mark read |
 
+`GET /documents/{id}/thread` response payload structure:
+```json
+{
+  "thread_root_id": "uuid",
+  "total_versions": 2,
+  "versions": [
+    {
+      "version": 1,
+      "document_id": "uuid",
+      "filename": "Proposal_v1.pdf",
+      "file_type": "pdf",
+      "status": "needs_revision",
+      "created_at": "2026-09-06T12:00:00Z",
+      "previous_version_id": null,
+      "review": {
+        "decision": "needs_revision",
+        "comment": "Please add required fee disclosure on page 2.",
+        "decided_at": "2026-09-06T12:30:00Z",
+        "officer_name": "Jane Compliance"
+      },
+      "ai_analysis": { "status": "ready", "summary": "..." }
+    },
+    {
+      "version": 2,
+      "document_id": "uuid",
+      "filename": "Proposal_v2.pdf",
+      "file_type": "pdf",
+      "status": "pending",
+      "created_at": "2026-09-06T13:00:00Z",
+      "previous_version_id": "uuid-v1",
+      "review": null,
+      "ai_analysis": { "status": "pending", "summary": null }
+    }
+  ]
+}
+```
+
 Every officer-only endpoint hit by an advisor session (and vice versa) must return **403**, verified by tests, not merely absent from the advisor's UI.
+
 
 ---
 

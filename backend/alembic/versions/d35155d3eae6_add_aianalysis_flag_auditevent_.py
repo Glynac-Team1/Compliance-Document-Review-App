@@ -82,6 +82,7 @@ def upgrade() -> None:
     )
     op.execute("REVOKE UPDATE, DELETE ON audit_events FROM compliance")
     op.add_column('documents', sa.Column('thread_root_id', sa.UUID(), nullable=True))
+    op.execute("UPDATE documents SET original_filename = file_reference WHERE original_filename IS NULL")
     op.alter_column('documents', 'original_filename',
                existing_type=sa.VARCHAR(),
                nullable=False)

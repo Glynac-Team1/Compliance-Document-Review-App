@@ -73,6 +73,9 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
     volumes:
       - ./worker:/app/worker
+      - ./backend/alembic:/app/alembic
+      - ./backend/models:/app/models
+      - ./backend/app:/app/app
       - embedding_cache:/home/appuser/.cache/huggingface
     depends_on:
       postgres:
