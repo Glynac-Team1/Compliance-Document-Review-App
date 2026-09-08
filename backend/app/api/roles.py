@@ -9,7 +9,7 @@ import uuid
 from fastapi import HTTPException
 
 advisor_router = APIRouter()
-officer_router = APIRouter()git 
+officer_router = APIRouter() 
 
 @advisor_router.get("")
 async def list_my_documents(
