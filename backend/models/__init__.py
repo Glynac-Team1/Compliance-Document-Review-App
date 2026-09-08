@@ -113,6 +113,7 @@ class Severity(str, enum.Enum):
 class AuditAction(str, enum.Enum):
     submitted = "submitted"
     viewed = "viewed"
+    claimed="claimed"
     decided = "decided"
     resubmitted = "resubmitted"
 

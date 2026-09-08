@@ -6,7 +6,7 @@ from pydantic import BaseModel
 import magic
 import asyncio
 import uuid
-from models import AIAnalysis, Flag, AnalysisStatus, AuditEvent, AuditAction, User, Rule
+from models import AIAnalysis, Flag, AnalysisStatus, AuditEvent, AuditAction, User, Rule, Notification
 
 from app.core.security import require_role, require_any_role
 from models import Role, DocumentStatus, Document, Review, Decision
@@ -152,7 +152,7 @@ async def claim_document(
     db.add(AuditEvent(
         actor_id=officer_id,
         document_id=claimed_id,
-        action=AuditAction.viewed,
+        action=AuditAction.claimed,
     ))
     await db.commit()
 
@@ -252,6 +252,12 @@ async def submit_decision(
         actor_id=officer_id,
         document_id=doc.id,
         action=AuditAction.decided,
+    ))
+
+    db.add(Notification(
+        user_id=doc.advisor_id,
+        document_id=doc.id,
+        message=f"Your document '{doc.original_filename}' was {doc.status.value}.",
     ))
 
     await db.commit()
