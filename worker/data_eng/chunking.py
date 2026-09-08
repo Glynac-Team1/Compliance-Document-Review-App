@@ -40,6 +40,7 @@ class DocumentChunk:
     chunk_index: int
     char_start: int    # offsets into the ORIGINAL document text, for exact-quote traceability
     char_end: int
+    embedding: list[float] | None = None  # populated once by the document pipeline
 
 
 def _split_into_sentences(text: str) -> list[tuple[str, int, int]]:

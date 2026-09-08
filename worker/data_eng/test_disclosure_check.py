@@ -3,10 +3,13 @@ import unittest
 from app.database import AsyncSessionLocal
 from worker.data_eng.chunking import DocumentChunk
 from worker.data_eng.disclosure_check import cosine_distance, find_missing_disclosures
+from worker.data_eng.embeddings import embed_document_chunks
 
 
 def _chunks(*texts: str) -> list[DocumentChunk]:
-    return [DocumentChunk(text=t, chunk_index=i, char_start=0, char_end=len(t)) for i, t in enumerate(texts)]
+    return embed_document_chunks(
+        [DocumentChunk(text=t, chunk_index=i, char_start=0, char_end=len(t)) for i, t in enumerate(texts)]
+    )
 
 
 class TestCosineDistanceHelper(unittest.TestCase):

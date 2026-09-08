@@ -8,6 +8,7 @@ from functools import lru_cache
 import logging
 
 from sentence_transformers import SentenceTransformer
+from worker.data_eng.chunking import DocumentChunk
 
 logger = logging.getLogger(__name__)
 
@@ -64,3 +65,22 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     prepared_texts = [_add_compliance_context(text) for text in texts]
     vectors = get_embedding_model().encode(prepared_texts, normalize_embeddings=True)
     return [v.tolist() for v in vectors]
+
+
+def embed_document_chunks(chunks: list[DocumentChunk]) -> list[DocumentChunk]:
+    """Populate each document chunk with its normalized embedding once."""
+    if not chunks:
+        return chunks
+
+    embeddings = embed_texts([chunk.text for chunk in chunks])
+    for chunk, embedding in zip(chunks, embeddings):
+        chunk.embedding = embedding
+    return chunks
+
+
+def document_chunk_embeddings(chunks: list[DocumentChunk]) -> list[list[float]]:
+    """Return prepared chunk embeddings, rejecting an incomplete pipeline."""
+    embeddings = [chunk.embedding for chunk in chunks]
+    if any(embedding is None for embedding in embeddings):
+        raise ValueError("Document chunks must be embedded before downstream analysis")
+    return [embedding for embedding in embeddings if embedding is not None]

@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Rule
 from worker.data_eng.chunking import DocumentChunk
-from worker.data_eng.embeddings import embed_texts
+from worker.data_eng.embeddings import document_chunk_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ async def find_missing_disclosures(
     if not disclosures:
         return []
 
-    chunk_embeddings = embed_texts([c.text for c in chunks]) if chunks else []
+    chunk_embeddings = document_chunk_embeddings(chunks) if chunks else []
 
     missing: list[MissingDisclosure] = []
     for disclosure in disclosures:

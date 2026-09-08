@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Rule
 from worker.data_eng.chunking import DocumentChunk
-from worker.data_eng.embeddings import embed_texts
+from worker.data_eng.embeddings import document_chunk_embeddings
 
 
 @dataclass
@@ -46,7 +46,7 @@ async def retrieve_rules_for_document(
     top_k_per_chunk: int = 3,
     max_total_rules: int = 8,
 ) -> list[RetrievedRule]:
-    """Embeds every chunk (batched), retrieves top-k rules PER chunk,
+    """Retrieves top-k rules PER prepared chunk,
     then merges across chunks: a rule relevant to multiple chunks is
     kept once, at its best (lowest) distance — capping the final list
     at max_total_rules keeps the RAG prompt small regardless of
@@ -54,7 +54,7 @@ async def retrieve_rules_for_document(
     if not chunks:
         return []
 
-    embeddings = embed_texts([c.text for c in chunks])
+    embeddings = document_chunk_embeddings(chunks)
 
     best_by_rule_key: dict[str, RetrievedRule] = {}
     for embedding in embeddings:
