@@ -76,9 +76,10 @@ def analyze_document(document_id: str) -> dict:
                 rules_context = None
                 try:
                     from worker.data_eng.chunking import chunk_document
+                    from worker.data_eng.embeddings import embed_document_chunks
                     from worker.data_eng.retrieval import retrieve_rules_for_document
 
-                    chunks = chunk_document(masked_text)
+                    chunks = embed_document_chunks(chunk_document(masked_text))
                     retrieved_rules = await retrieve_rules_for_document(db, chunks)
                     if retrieved_rules:
                         rules_context = [

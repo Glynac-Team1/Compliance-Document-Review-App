@@ -8,7 +8,7 @@ import unittest
 
 from app.database import AsyncSessionLocal
 from worker.data_eng.chunking import DocumentChunk
-from worker.data_eng.embeddings import embed_text
+from worker.data_eng.embeddings import embed_document_chunks, embed_text
 from worker.data_eng.retrieval import _top_k_rules_for_embedding, retrieve_rules_for_document
 
 
@@ -26,10 +26,10 @@ class TestRuleRetrieval(unittest.IsolatedAsyncioTestCase):
         self.assertIn("RULE_DISCLOSURE_PAST_PERFORMANCE", [r.rule_key for r in results])
 
     async def test_retrieve_rules_for_document_dedupes_and_caps(self):
-        chunks = [
+        chunks = embed_document_chunks([
             DocumentChunk(text="We guarantee a risk-free 20% return.", chunk_index=0, char_start=0, char_end=10),
             DocumentChunk(text="Past 3-year performance has been excellent.", chunk_index=1, char_start=10, char_end=20),
-        ]
+        ])
         async with AsyncSessionLocal() as session:
             results = await retrieve_rules_for_document(session, chunks, top_k_per_chunk=3, max_total_rules=4)
 
