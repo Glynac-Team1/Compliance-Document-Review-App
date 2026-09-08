@@ -6,7 +6,7 @@ from pydantic import BaseModel
 import magic
 import asyncio
 import uuid
-from models import AIAnalysis, Flag, AnalysisStatus, AuditEvent, AuditAction, User
+from models import AIAnalysis, Flag, AnalysisStatus, AuditEvent, AuditAction, User, Rule
 
 from app.core.security import require_role, require_any_role
 from models import Role, DocumentStatus, Document, Review, Decision
@@ -175,23 +175,41 @@ async def get_analysis(
         raise HTTPException(202, "Analysis is still processing")
 
     if analysis.status == AnalysisStatus.error:
-        raise HTTPException(503, "AI analysis is unavailable")
+        doc = await db.scalar(select(Document).where(Document.id == document_id))
+        error_type = "unsupported_for_ai"
+        if doc and doc.ai_analysis and isinstance(doc.ai_analysis, dict):
+            error_type = doc.ai_analysis.get("error_type", "unsupported_for_ai")
+
+        summary_msg = analysis.summary or (
+            "This file format or document structure is not supported for automated AI analysis "
+            "(e.g., scanned/image-only PDF or empty file). Please proceed with manual revision."
+        )
+
+        return {
+            "summary": summary_msg,
+            "flags": [],
+            "precedents": [],
+            "error_type": error_type,
+            "manual_review_required": True,
+        }
 
     flags_result = await db.execute(
-        select(Flag).where(Flag.analysis_id == analysis.id)
+        select(Flag, Rule.rule_key)
+        .outerjoin(Rule, Flag.matched_rule_id == Rule.id)
+        .where(Flag.analysis_id == analysis.id)
     )
-    flags = flags_result.scalars().all()
+    flag_rows = flags_result.all()
 
     return {
         "summary": analysis.summary,
         "flags": [
             {
                 "passage": f.passage_excerpt,
-                "matched_rule_id": str(f.matched_rule_id),
+                "matched_rule_id": rule_key or str(f.matched_rule_id),
                 "explanation": f.explanation,
                 "severity": f.severity.value,
             }
-            for f in flags
+            for f, rule_key in flag_rows
         ],
         "precedents": [],
     }

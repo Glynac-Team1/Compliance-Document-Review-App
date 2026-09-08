@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { AlertTriangle, CircleCheck, Info, Sparkles, History } from 'lucide-react'
+import { AlertTriangle, CircleCheck, Info, Sparkles, History, Loader2 } from 'lucide-react'
+import { getApiBaseUrl } from '@/lib/api'
 
 export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: () => void }) {
   const [tab, setTab] = useState<'AI Assist' | 'Manual Decision' | 'Thread History'>('AI Assist')
@@ -11,31 +12,94 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
   const [threadData, setThreadData] = useState<any | null>(null)
   const [isLoadingThread, setIsLoadingThread] = useState(false)
 
+  const [analysisData, setAnalysisData] = useState<any>(doc?.ai_analysis || null)
+  const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(!doc?.ai_analysis)
+  const [analysisStatusMessage, setAnalysisStatusMessage] = useState<string | null>(null)
+
   useEffect(() => {
     if (!doc?.id) return
+
+    let isMounted = true
+    let pollTimer: NodeJS.Timeout | null = null
+
+    if (doc.ai_analysis) {
+      setAnalysisData(doc.ai_analysis)
+      setIsLoadingAnalysis(false)
+    } else {
+      setIsLoadingAnalysis(true)
+    }
+
+    const fetchAnalysis = async () => {
+      try {
+        const token = localStorage.getItem('auth_token')
+        if (!token) return
+
+        const res = await fetch(`${getApiBaseUrl()}/documents/${doc.id}/analysis`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+
+        if (!isMounted) return
+
+        if (res.status === 200) {
+          const data = await res.json()
+          setAnalysisData(data)
+          setIsLoadingAnalysis(false)
+          setAnalysisStatusMessage(null)
+        } else if (res.status === 202) {
+          // Worker is currently processing; poll again in 3 seconds
+          setIsLoadingAnalysis(true)
+          setAnalysisStatusMessage('AI analysis is running in the background...')
+          pollTimer = setTimeout(fetchAnalysis, 3000)
+        } else if (res.status === 503) {
+          setIsLoadingAnalysis(false)
+          setAnalysisStatusMessage('AI analysis service is temporarily unavailable.')
+        } else if (res.status === 404) {
+          // Document analysis record not yet created; retry shortly
+          setIsLoadingAnalysis(true)
+          setAnalysisStatusMessage('Initializing analysis pipeline...')
+          pollTimer = setTimeout(fetchAnalysis, 3000)
+        } else {
+          setIsLoadingAnalysis(false)
+        }
+      } catch (err) {
+        if (!isMounted) return
+        console.error('Failed to fetch analysis', err)
+        setIsLoadingAnalysis(false)
+      }
+    }
+
     const fetchThread = async () => {
       setIsLoadingThread(true)
       try {
         const token = localStorage.getItem('auth_token')
         if (!token) return
-        const res = await fetch(`http://localhost:8000/documents/${doc.id}/thread`, {
+        const res = await fetch(`${getApiBaseUrl()}/documents/${doc.id}/thread`, {
           headers: { Authorization: `Bearer ${token}` }
         })
-        if (res.ok) {
+        if (res.ok && isMounted) {
           const data = await res.json()
           setThreadData(data)
         }
       } catch (err) {
         console.error('Failed to load thread history', err)
       } finally {
-        setIsLoadingThread(false)
+        if (isMounted) setIsLoadingThread(false)
       }
     }
-    fetchThread()
-  }, [doc.id])
 
-  const aiData = doc.ai_analysis || {
-    summary: 'AI analysis is currently processing or unavailable.',
+    fetchAnalysis()
+    fetchThread()
+
+    return () => {
+      isMounted = false
+      if (pollTimer) clearTimeout(pollTimer)
+    }
+  }, [doc.id, doc.ai_analysis])
+
+  const aiData = analysisData || {
+    summary: isLoadingAnalysis
+      ? 'Analyzing document against compliance rules...'
+      : (analysisStatusMessage || 'AI analysis is currently processing or unavailable.'),
     flags: [],
   }
 
@@ -48,7 +112,7 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
     if (decision === 'Reject') backendDecision = 'reject'
     try {
       const token = localStorage.getItem('auth_token')
-      const response = await fetch(`http://localhost:8000/queue/${doc.id}/review`, {
+      const response = await fetch(`${getApiBaseUrl()}/queue/${doc.id}/review`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -111,10 +175,41 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
       <div className="min-h-0 flex-1 overflow-y-auto">
         {tab === 'AI Assist' ? (
           <div className="flex flex-col gap-7 p-5 sm:p-6">
+            {(aiData.error_type === 'unsupported_for_ai' || aiData.manual_review_required) && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="size-5 shrink-0 text-amber-600 mt-0.5" />
+                  <div className="flex-1">
+                    <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                      File Not Supported for Automated AI Analysis
+                    </h3>
+                    <p className="mt-1 text-xs text-amber-800/90 dark:text-amber-300/90 leading-5">
+                      This document cannot be parsed for automated compliance checks (e.g. scanned or image-only PDF with no extractable text). Automated screening was bypassed; please proceed with manual revision.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setTab('Manual Decision')}
+                      className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-amber-700 transition"
+                    >
+                      Proceed with Manual Decision &rarr;
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="rounded-lg border border-primary/15 bg-primary/4 p-4">
-              <div className="mb-2 flex items-center gap-2">
-                <Sparkles className="size-4 text-primary" />
-                <h2 className="text-sm font-semibold">AI review summary</h2>
+              <div className="mb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="size-4 text-primary" />
+                  <h2 className="text-sm font-semibold">AI review summary</h2>
+                </div>
+                {isLoadingAnalysis && (
+                  <span className="flex items-center gap-1.5 text-xs text-primary font-medium">
+                    <Loader2 className="size-3 animate-spin" />
+                    <span>Processing</span>
+                  </span>
+                )}
               </div>
               <p className="text-sm leading-6 text-muted-foreground">{aiData.summary}</p>
             </div>
@@ -126,8 +221,14 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
 
               {aiData.flags.length === 0 ? (
                 <div className="flex items-center gap-2 rounded-lg border border-border p-4 text-sm text-muted-foreground">
-                  <Info className="size-4" />
-                  <span>No flags detected.</span>
+                  <Info className="size-4 shrink-0" />
+                  <span>
+                    {isLoadingAnalysis
+                      ? 'Evaluating document against rules...'
+                      : (aiData.error_type === 'unsupported_for_ai' || aiData.manual_review_required)
+                      ? 'Automated rule checking bypassed due to unsupported file format. Manual revision/review required.'
+                      : 'No flags detected.'}
+                  </span>
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
@@ -135,14 +236,14 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
                     <div key={index} className="rounded-lg border border-border bg-card p-4 shadow-sm">
                       <div className="mb-3 flex items-center gap-2">
                         <AlertTriangle
-                          className={`size-4 ${flag.severity === 'HIGH' ? 'text-destructive' : 'text-amber-600'}`}
+                          className={`size-4 ${flag.severity?.toUpperCase() === 'HIGH' ? 'text-destructive' : 'text-amber-600'}`}
                         />
                         <span
                           className={`text-xs font-semibold ${
-                            flag.severity === 'HIGH' ? 'text-destructive' : 'text-amber-700'
+                            flag.severity?.toUpperCase() === 'HIGH' ? 'text-destructive' : 'text-amber-700'
                           }`}
                         >
-                          {flag.severity} severity
+                          {flag.severity?.toUpperCase()} severity
                         </span>
                       </div>
 

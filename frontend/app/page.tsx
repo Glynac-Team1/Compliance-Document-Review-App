@@ -3,6 +3,7 @@
 import { FormEvent, useState, useRef, useEffect } from 'react'
 import { ArrowRight, Check, Eye, EyeOff, LockKeyhole, ShieldCheck, Sparkles, UserRound } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { getApiBaseUrl } from '@/lib/api'
 
 function BrandMark() {
   return (
@@ -27,13 +28,54 @@ function RoleOption({ selected, title, description, onClick }: { selected: boole
   )
 }
 
+interface ActiveSession {
+  name: string
+  email: string
+  role: string
+  slug: string
+}
+
 export default function Page() {
   const router = useRouter()
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [role, setRole] = useState<'Financial Advisor' | 'Compliance Officer'>('Financial Advisor')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [activeSession, setActiveSession] = useState<ActiveSession | null>(null)
   const [toast, setToast] = useState('')
+
+  useEffect(() => {
+    async function checkExistingSession() {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        setActiveSession(null)
+        return
+      }
+
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+
+        if (res.ok) {
+          const data = await res.json()
+          if (data.role) localStorage.setItem('user_role', data.role)
+          if (data.slug) localStorage.setItem('user_slug', data.slug)
+          setActiveSession(data)
+        } else {
+          // Token expired or invalid
+          localStorage.removeItem('auth_token')
+          localStorage.removeItem('user_role')
+          localStorage.removeItem('user_slug')
+          setActiveSession(null)
+        }
+      } catch (err) {
+        console.error('Session check error', err)
+      }
+    }
+
+    checkExistingSession()
+  }, [])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -52,7 +94,7 @@ export default function Page() {
       const endpoint = mode === 'login' ? '/auth/login' : '/auth/signup'
 
       // Send the request to FastAPI backend
-      const response = await fetch(`http://localhost:8000${endpoint}`, {
+      const response = await fetch(`${getApiBaseUrl()}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -69,14 +111,21 @@ export default function Page() {
         throw new Error(data.detail || "Authentication failed")
       }
 
-      // Save the real security token in the browser!
+      // Save security token and profile metadata in browser
       localStorage.setItem("auth_token", data.token)
+      if (data.role) {
+        localStorage.setItem("user_role", data.role)
+      }
+      if (data.slug) {
+        localStorage.setItem("user_slug", data.slug)
+      }
 
-      // Securely route to the correct dashboard
+      // Securely route to the personalized workspace dashboard
+      const targetSlug = data.slug || 'workspace'
       if (data.role === 'advisor') {
-        router.push('/advisor')
+        router.push(`/advisor/${targetSlug}`)
       } else {
-        router.push('/compliance-officer')
+        router.push(`/compliance-officer/${targetSlug}`)
       }
 
     } catch (error: any) {
@@ -106,7 +155,56 @@ export default function Page() {
         <div className="w-full max-w-[430px]">
           <div className="mb-8 flex items-center gap-3 lg:hidden"><BrandMark /></div>
           <div className="rounded-2xl border border-border bg-card p-6 shadow-xl shadow-primary/[0.04] sm:p-9">
-            <div className="mb-7"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Welcome to Northstar</p><h2 className="mt-3 text-2xl font-semibold tracking-tight">{mode === 'login' ? 'Sign in to your workspace' : 'Create your workspace account'}</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">{mode === 'login' ? 'Continue your secure review workflow.' : 'Start reviewing with confidence today.'}</p></div>
+            <div className="mb-7">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Welcome to Northstar</p>
+              <h2 className="mt-3 text-2xl font-semibold tracking-tight">{mode === 'login' ? 'Sign in to your workspace' : 'Create your workspace account'}</h2>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">{mode === 'login' ? 'Continue your secure review workflow.' : 'Start reviewing with confidence today.'}</p>
+            </div>
+
+            {activeSession && (
+              <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+                <div className="flex items-center justify-between">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                    <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Active Session
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      localStorage.removeItem('auth_token')
+                      localStorage.removeItem('user_role')
+                      localStorage.removeItem('user_slug')
+                      setActiveSession(null)
+                      setToast('Signed out successfully')
+                    }}
+                    className="text-xs font-semibold text-destructive hover:underline"
+                  >
+                    Sign Out
+                  </button>
+                </div>
+                <p className="mt-2 text-sm font-semibold text-foreground">
+                  Signed in as {activeSession.name}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {activeSession.role === 'officer' ? 'Compliance Officer' : 'Financial Advisor'} ({activeSession.email})
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = `/${activeSession.role === 'officer' ? 'compliance-officer' : 'advisor'}/${activeSession.slug || 'workspace'}`
+                    router.push(target)
+                  }}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                >
+                  <span>Return to Workspace (/{activeSession.role === 'officer' ? 'compliance-officer' : 'advisor'}/{activeSession.slug})</span>
+                  <ArrowRight className="size-3.5" />
+                </button>
+                <p className="mt-2 text-center text-[11px] text-muted-foreground">
+                  Or sign in to a different account below:
+                </p>
+              </div>
+            )}
+
             <div className="mb-7 flex rounded-lg bg-muted p-1" role="tablist" aria-label="Authentication mode"><button type="button" role="tab" aria-selected={mode === 'login'} onClick={() => { setMode('login'); setToast('') }} className={`flex-1 rounded-md py-2 text-xs font-semibold transition ${mode === 'login' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>Log In</button><button type="button" role="tab" aria-selected={mode === 'signup'} onClick={() => { setMode('signup'); setToast('') }} className={`flex-1 rounded-md py-2 text-xs font-semibold transition ${mode === 'signup' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>Sign Up</button></div>
             <form onSubmit={handleSubmit} className="auth-form flex flex-col gap-5" key={mode}>
               {mode === 'signup' && <label className="flex flex-col gap-2 text-xs font-semibold">Full name<input required name="name" type="text" placeholder="Jordan Davis" className="h-11 rounded-lg border border-input bg-background px-3 text-sm font-normal outline-none transition placeholder:text-muted-foreground/60 focus:border-primary focus:ring-2 focus:ring-primary/10" /></label>}

@@ -19,6 +19,10 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "incremental": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    },
     "plugins": [
       {
         "name": "next"
@@ -26,6 +30,9 @@
     ]
   },
   "include": [
+    "app",
+    "components",
+    "lib",
     "src",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"

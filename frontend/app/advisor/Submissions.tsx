@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, FileText, Filter, Search, X, Upload, RefreshCw, Loader2, History } from 'lucide-react'
+import { getApiBaseUrl } from '@/lib/api'
 
 const fallbackSubmissions = [
   { name: 'Q3 Marketing Brochure', date: 'Oct 24, 2024', type: 'PDF', status: 'Approved' },
@@ -46,7 +47,7 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
       const token = localStorage.getItem('auth_token')
       if (!token) return
 
-      const response = await fetch('http://localhost:8000/documents/mine', {
+      const response = await fetch(`${getApiBaseUrl()}/documents/mine`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -84,7 +85,7 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
       try {
         const token = localStorage.getItem('auth_token')
         if (!token) return
-        const res = await fetch(`http://localhost:8000/documents/${selectedDocument.id}/thread`, {
+        const res = await fetch(`${getApiBaseUrl()}/documents/${selectedDocument.id}/thread`, {
           headers: { Authorization: `Bearer ${token}` }
         })
         if (res.ok) {
@@ -116,7 +117,7 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
         alert('Authentication required')
         return
       }
-      const res = await fetch('http://localhost:8000/documents', {
+      const res = await fetch(`${getApiBaseUrl()}/documents`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: formData,

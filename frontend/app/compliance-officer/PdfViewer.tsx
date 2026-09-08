@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { FileText, Loader2, Download, FileType } from 'lucide-react'
+import { getApiBaseUrl } from '@/lib/api'
 
 export default function PdfViewer({ doc }: { doc: any }) {
   const [url, setUrl] = useState<string | null>(null)
@@ -10,7 +11,7 @@ export default function PdfViewer({ doc }: { doc: any }) {
     async function fetchUrl() {
       try {
         const token = localStorage.getItem('auth_token')
-        const res = await fetch(`http://localhost:8000/queue/${doc.id}/view`, {
+        const res = await fetch(`${getApiBaseUrl()}/queue/${doc.id}/view`, {
           headers: { Authorization: `Bearer ${token}` }
         })
         if (res.ok) {

@@ -12,7 +12,7 @@ from models import Document, AIAnalysis, Flag, AnalysisStatus, Severity, Rule, P
 from app.core.storage import s3_client
 from worker.ai.gemini_assist import GeminiAssistEngine
 from worker.ai.pii_masker import PIIMasker
-from worker.data_eng.extractors import TextExtractor
+from worker.data_eng.extractors import TextExtractor, ExtractionError
 
 celery_app = Celery("compliance_review", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.task_default_queue = "document-analysis"
@@ -181,12 +181,37 @@ def analyze_document(document_id: str) -> dict:
                 ai_record.generated_at = datetime.utcnow()
                 await db.commit()
 
-            except Exception as e:
-                print(f"Error processing document: {e}")
+            except ExtractionError as e:
+                print(f"Extraction error for document {document_id}: {e}")
+                err_msg = (
+                    "This file format or document structure is not supported for automated AI analysis "
+                    "(e.g., scanned/image-only PDF or empty file). Please proceed with manual revision."
+                )
                 if ai_record:
                     ai_record.status = AnalysisStatus.error
-                    await db.commit()
-                return {"document_id": document_id, "status": "error", "error": str(e)}
+                    ai_record.summary = err_msg
+                doc.ai_analysis = {
+                    "summary": err_msg,
+                    "flags": [],
+                    "error_type": "unsupported_for_ai",
+                    "error_detail": str(e),
+                }
+                await db.commit()
+                return {"document_id": document_id, "status": "error", "error_type": "unsupported_for_ai", "error": str(e)}
+            except Exception as e:
+                print(f"Error processing document: {e}")
+                err_msg = "AI analysis is currently unavailable for this submission. Please proceed with manual revision."
+                if ai_record:
+                    ai_record.status = AnalysisStatus.error
+                    ai_record.summary = err_msg
+                doc.ai_analysis = {
+                    "summary": err_msg,
+                    "flags": [],
+                    "error_type": "ai_unavailable",
+                    "error_detail": str(e),
+                }
+                await db.commit()
+                return {"document_id": document_id, "status": "error", "error_type": "ai_unavailable", "error": str(e)}
             finally:
                 # Cleanup the temp file
                 if os.path.exists(temp_file):

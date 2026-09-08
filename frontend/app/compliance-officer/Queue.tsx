@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CircleCheck, Clock3, FileText, Filter, Gauge, Search } from 'lucide-react'
+import { getApiBaseUrl } from '@/lib/api'
 
 // The mini stat cards at the top
 function Metric({ label, value, detail, icon: Icon, tone = 'default' }: any) {
@@ -28,7 +29,7 @@ export default function Queue({ onReview }: { onReview: (doc: any) => void }) {
       if (!token) return
       
       try {
-        const response = await fetch('http://localhost:8000/queue', {
+        const response = await fetch(`${getApiBaseUrl()}/queue`, {
           headers: { Authorization: `Bearer ${token}` }
         })
         if (response.ok) {
