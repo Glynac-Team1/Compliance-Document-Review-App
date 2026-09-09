@@ -53,23 +53,20 @@ def cosine_distance(a, b) -> float:
 
 async def find_missing_disclosures(
     session: AsyncSession,
-    chunks: list[DocumentChunk],
+    chunk_embeddings: list[list[float]],
     threshold: float = DEFAULT_ABSENCE_THRESHOLD,
 ) -> list[MissingDisclosure]:
+    """Accepts PRECOMPUTED chunk embeddings (see retrieve_rules_for_document
+    docstring — same reasoning: embed once, reuse across all three
+    retrieval jobs instead of re-deriving embeddings per job)."""
     stmt = select(Rule).where(Rule.rule_type == REQUIRED_DISCLOSURE_TYPE)
     disclosures = (await session.execute(stmt)).scalars().all()
     if not disclosures:
         return []
 
-    chunk_embeddings = document_chunk_embeddings(chunks) if chunks else []
-
     missing: list[MissingDisclosure] = []
     for disclosure in disclosures:
         if not chunk_embeddings:
-            # No document content at all — every required disclosure is
-            # trivially absent. Use the maximum possible distance (2.0)
-            # rather than skipping, so this is visible in results/logs
-            # as "genuinely absent," not silently omitted.
             closest = 2.0
         else:
             closest = min(cosine_distance(list(disclosure.embedding), emb) for emb in chunk_embeddings)
