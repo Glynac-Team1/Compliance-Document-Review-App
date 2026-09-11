@@ -55,7 +55,7 @@ export default function Submissions({
 
   const [isLoading, setIsLoading] = useState(true)
   const [threadData, setThreadData] = useState<DocumentThread | null>(null)
-  const [isLoadingThread, setIsLoadingThread] = useState(false)
+  const [_isLoadingThread, setIsLoadingThread] = useState(false)
   const [isResubmitting, setIsResubmitting] = useState(false)
   const resubmitInputRef = useRef<HTMLInputElement>(null)
 

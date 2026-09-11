@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, ChevronLeft, ChevronRight, CircleCheck, Clock3, FileText, Filter, Gauge, Search, Lock, UserCheck } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, ChevronRight, CircleCheck, Clock3, FileText, Filter, Search, UserCheck } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
 import type { DocumentItem } from '@/types/document'
 

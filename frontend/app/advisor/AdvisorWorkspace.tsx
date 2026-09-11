@@ -12,21 +12,16 @@ import {
   ArrowUpRight,
   BookOpen,
   CheckCircle2,
-  ChevronDown,
-  ChevronLeft,
   ChevronRight,
-  Clock3,
   FileCheck2,
   FileText,
   Filter,
   HelpCircle,
-  LifeBuoy,
   Mail,
   MessageSquare,
   Plus,
   Search,
   ShieldCheck,
-  Upload,
   X,
 } from 'lucide-react'
 
@@ -238,7 +233,7 @@ interface AdvisorWorkspaceProps {
   slug?: string
 }
 
-export default function AdvisorWorkspace({ slug }: AdvisorWorkspaceProps) {
+export default function AdvisorWorkspace({ slug: _slug }: AdvisorWorkspaceProps) {
   const router = useRouter()
 
   useEffect(() => {

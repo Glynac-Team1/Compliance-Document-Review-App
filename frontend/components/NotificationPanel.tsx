@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   X,
   Inbox,
-  Filter,
 } from 'lucide-react'
 import { AppNotification } from '@/lib/useLiveSync'
 

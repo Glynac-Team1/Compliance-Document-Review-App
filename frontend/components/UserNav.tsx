@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, LogOut, ShieldCheck, User, CheckCircle2 } from 'lucide-react'
+import { ChevronDown, LogOut, ShieldCheck } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
 
 interface UserProfile {

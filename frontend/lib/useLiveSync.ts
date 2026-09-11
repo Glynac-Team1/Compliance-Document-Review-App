@@ -118,7 +118,7 @@ export function useLiveSync({ onSync }: UseLiveSyncOptions = {}) {
               onSyncRef.current(data.event, data.document_id)
             }
           }
-        } catch (err) {
+        } catch {
           // Keepalive or empty message
         }
       }

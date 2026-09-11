@@ -371,7 +371,7 @@ interface OfficerWorkspaceProps {
   slug?: string
 }
 
-export default function OfficerWorkspace({ slug }: OfficerWorkspaceProps) {
+export default function OfficerWorkspace({ slug: _slug }: OfficerWorkspaceProps) {
   const router = useRouter()
   const [screen, setScreen] = useState<Screen>('queue')
   const [selected, setSelected] = useState<DocumentItem | null>(null)
