@@ -4,13 +4,25 @@ import { useState, useEffect } from 'react'
 import { AlertTriangle, CircleCheck, Info, Sparkles, History, Loader2 } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
 
-export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: () => void }) {
+export default function ReviewPanel({
+  doc,
+  onSuccess,
+  onStatusChange,
+}: {
+  doc: any
+  onSuccess: () => void
+  onStatusChange?: (status: string) => void
+}) {
   const [tab, setTab] = useState<'AI Assist' | 'Manual Decision' | 'Thread History'>('AI Assist')
   const [decision, setDecision] = useState('Needs Revision')
   const [comments, setComments] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [threadData, setThreadData] = useState<any | null>(null)
   const [isLoadingThread, setIsLoadingThread] = useState(false)
+
+  const [claimStatus, setClaimStatus] = useState<'claiming' | 'claimed' | 'locked_by_other'>('claiming')
+  const [lockMessage, setLockMessage] = useState<string | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const [analysisData, setAnalysisData] = useState<any>(doc?.ai_analysis || null)
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(!doc?.ai_analysis)
@@ -87,6 +99,30 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
       }
     }
 
+    const claimDoc = async () => {
+      try {
+        const token = localStorage.getItem('auth_token')
+        if (!token) return
+        const res = await fetch(`${getApiBaseUrl()}/documents/${doc.id}/claim`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        if (!isMounted) return
+        if (res.ok) {
+          setClaimStatus('claimed')
+          onStatusChange?.('in_review')
+        } else if (res.status === 409) {
+          const data = await res.json()
+          setClaimStatus('locked_by_other')
+          setLockMessage(data.detail || 'This document is already being reviewed by another officer.')
+        }
+
+      } catch (err) {
+        console.error('Failed to claim document', err)
+      }
+    }
+
+    claimDoc()
     fetchAnalysis()
     fetchThread()
 
@@ -95,6 +131,32 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
       if (pollTimer) clearTimeout(pollTimer)
     }
   }, [doc.id, doc.ai_analysis])
+
+  // Periodic heartbeat while reviewing to keep lock active
+  useEffect(() => {
+    if (claimStatus !== 'claimed' || !doc?.id) return
+
+    // Send heartbeat every 4 minutes (TTL is 30 minutes)
+    const interval = setInterval(async () => {
+      try {
+        const token = localStorage.getItem('auth_token')
+        if (!token) return
+        const res = await fetch(`${getApiBaseUrl()}/documents/${doc.id}/heartbeat`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.status === 409) {
+          const data = await res.json()
+          setClaimStatus('locked_by_other')
+          setLockMessage(data.detail || 'Your review session timed out and another officer took over this document.')
+        }
+      } catch (err) {
+        console.error('Failed to refresh review heartbeat', err)
+      }
+    }, 4 * 60 * 1000)
+
+    return () => clearInterval(interval)
+  }, [claimStatus, doc?.id])
 
   const aiData = analysisData || {
     summary: isLoadingAnalysis
@@ -105,7 +167,9 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (claimStatus === 'locked_by_other') return
     setIsSubmitting(true)
+    setSubmitError(null)
 
     let backendDecision = 'needs_revision'
     if (decision === 'Approve') backendDecision = 'approve'
@@ -124,15 +188,18 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
       if (response.ok) {
         onSuccess()
       } else {
+        const err = await response.json()
+        setSubmitError(err.detail || 'Failed to record review determination.')
         setIsSubmitting(false)
       }
     } catch {
+      setSubmitError('Network error while recording determination.')
       setIsSubmitting(false)
     }
   }
 
   return (
-    <aside className="flex w-full shrink-0 flex-col border-t border-border bg-card lg:w-[40%] lg:border-l lg:border-t-0">
+    <aside className="flex w-full shrink-0 flex-col border-t border-border bg-card lg:w-[420px] xl:w-[460px] 2xl:w-[500px] lg:border-l lg:border-t-0 h-full min-h-0 overflow-hidden">
       <div className="flex h-14 shrink-0 items-end gap-5 border-b border-border px-5 sm:px-6">
         <button
           onClick={() => setTab('AI Assist')}
@@ -276,7 +343,28 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
               </p>
             </div>
 
-            <fieldset className="mt-8 flex flex-col gap-3">
+            {claimStatus === 'locked_by_other' && (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
+                <div className="flex items-start gap-2.5">
+                  <Info className="size-4 shrink-0 text-amber-600 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-amber-900">Under Active Review</p>
+                    <p className="mt-1 leading-relaxed text-amber-800">
+                      {lockMessage || 'This document is already being reviewed by another officer.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {submitError && (
+              <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 flex items-start gap-2">
+                <AlertTriangle className="size-4 shrink-0 text-rose-600 mt-0.5" />
+                <span>{submitError}</span>
+              </div>
+            )}
+
+            <fieldset disabled={claimStatus === 'locked_by_other'} className="mt-6 flex flex-col gap-3">
               <legend className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Decision
               </legend>
@@ -284,16 +372,19 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
               {['Approve', 'Reject', 'Needs Revision'].map((option) => (
                 <label
                   key={option}
-                  className={`flex cursor-pointer items-center gap-3 rounded-lg border p-4 text-sm transition ${
-                    decision === option
-                      ? 'border-primary bg-primary/4'
-                      : 'border-border text-muted-foreground hover:bg-muted/50'
+                  className={`flex items-center gap-3 rounded-lg border p-4 text-sm transition ${
+                    claimStatus === 'locked_by_other'
+                      ? 'cursor-not-allowed opacity-60 border-border bg-muted/20'
+                      : 'cursor-pointer ' + (decision === option
+                          ? 'border-primary bg-primary/4'
+                          : 'border-border text-muted-foreground hover:bg-muted/50')
                   }`}
                 >
                   <input
                     type="radio"
                     name="decision"
                     value={option}
+                    disabled={claimStatus === 'locked_by_other'}
                     checked={decision === option}
                     onChange={(e) => setDecision(e.target.value)}
                     className="size-4 accent-primary"
@@ -307,23 +398,25 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
               Reviewer comments
               <textarea
                 required
+                disabled={claimStatus === 'locked_by_other'}
                 value={comments}
                 onChange={(e) => setComments(e.target.value)}
-                placeholder="Add context for the submitter..."
-                className="min-h-40 resize-y rounded-lg border border-input bg-background p-3 text-sm font-normal normal-case tracking-normal text-foreground outline-none ring-primary placeholder:text-muted-foreground focus:ring-2"
+                placeholder={claimStatus === 'locked_by_other' ? 'This document is already being reviewed by another officer...' : 'Add context for the submitter...'}
+                className="min-h-40 resize-y rounded-lg border border-input bg-background p-3 text-sm font-normal normal-case tracking-normal text-foreground outline-none ring-primary placeholder:text-muted-foreground focus:ring-2 disabled:bg-muted/50 disabled:cursor-not-allowed"
               />
             </label>
 
             <div className="mt-auto flex flex-col gap-3 pt-8">
               <button
                 type="submit"
-                disabled={isSubmitting}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
+                disabled={isSubmitting || claimStatus === 'locked_by_other'}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <CircleCheck className="size-4" />
-                {isSubmitting ? 'Submitting...' : 'Submit decision'}
+                {claimStatus === 'locked_by_other' ? 'Under review by another officer' : isSubmitting ? 'Submitting...' : 'Submit decision'}
               </button>
             </div>
+
           </form>
         )}
 
