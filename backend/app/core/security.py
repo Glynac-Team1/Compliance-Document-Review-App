@@ -65,3 +65,20 @@ def require_any_role(*required_roles: Role):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
         return token
     return dependency
+
+
+def decode_raw_token(token_str: str) -> dict:
+    """Decodes and validates a raw JWT token string (e.g. from query parameters)."""
+    try:
+        return jwt.decode(token_str, settings.session_secret, algorithms=["HS256"])
+    except ExpiredSignatureError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired. Please sign in again."
+        ) from exc
+    except JWTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid session"
+        ) from exc
+

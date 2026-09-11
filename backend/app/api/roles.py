@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
+from sqlalchemy.orm import aliased
 from app.core.security import require_role
 from app.database import get_db
 from models import Role, Document, User, Review, DocumentStatus, Decision
 from pydantic import BaseModel
 import uuid
 from fastapi import HTTPException
+from app.api.documents import execute_officer_decision, is_lock_expired
 
 advisor_router = APIRouter()
 officer_router = APIRouter() 
@@ -17,50 +19,122 @@ async def list_my_documents(
     db: AsyncSession = Depends(get_db)
 ):
     advisor_id = user_token["sub"]
-    query = select(Document).where(Document.advisor_id == advisor_id).order_by(desc(Document.created_at))
+    ClaimingOfficer = aliased(User)
+    query = (
+        select(Document, ClaimingOfficer)
+        .outerjoin(ClaimingOfficer, Document.locked_by_officer_id == ClaimingOfficer.id)
+        .where(Document.advisor_id == advisor_id)
+        .order_by(desc(Document.created_at))
+    )
     result = await db.execute(query)
-    documents = result.scalars().all()
+    rows = result.all()
     
     formatted_docs = []
-    for doc in documents:
+    for doc, claiming_officer in rows:
+        expired = is_lock_expired(doc)
+        effective_claiming_officer = None if expired else claiming_officer
+        effective_status = (
+            DocumentStatus.pending.value
+            if (expired and doc.status == DocumentStatus.in_review)
+            else doc.status.value
+        )
+
         # Fetch the latest review for this document
         rev_query = select(Review).where(Review.document_id == doc.id).order_by(desc(Review.decided_at)).limit(1)
         rev_result = await db.execute(rev_query)
         latest_review = rev_result.scalar_one_or_none()
+
+        if latest_review and latest_review.comment:
+            officer_comment = latest_review.comment
+        elif effective_status == DocumentStatus.in_review.value:
+            if effective_claiming_officer and effective_claiming_officer.name:
+                officer_comment = f"Currently being reviewed by {effective_claiming_officer.name}."
+            else:
+                officer_comment = "Currently being reviewed by a compliance officer."
+        elif effective_status == DocumentStatus.approved.value:
+            officer_comment = "Approved by compliance."
+        elif effective_status == DocumentStatus.rejected.value:
+            officer_comment = "Rejected by compliance."
+        elif effective_status == DocumentStatus.needs_revision.value:
+            officer_comment = "Revisions requested by compliance."
+        else:
+            officer_comment = "Document received and queued for compliance review."
         
         formatted_docs.append({
             "id": str(doc.id),
             "filename": doc.original_filename or doc.file_reference,
             "file_type": doc.file_type.upper(),
-            "status": doc.status.value,
+            "status": effective_status,
             "upload_date": doc.created_at.strftime("%b %d, %Y"),
-            "officer_comment": latest_review.comment if latest_review else "Document received and queued for compliance review."
+            "officer_comment": officer_comment,
         })
         
     return {"documents": formatted_docs}
 
-    
-##### officer stuff here
-@officer_router.get("")
-async def list_review_queue(
-    _: dict = Depends(require_role(Role.officer)),
+
+@advisor_router.get("/notifications")
+async def list_advisor_notifications(
+    user_token: dict = Depends(require_role(Role.advisor)),
     db: AsyncSession = Depends(get_db)
 ):
-    # Join the Document table with the User table to show the advisor's name
-    query = select(Document, User).join(User, Document.advisor_id == User.id).order_by(desc(Document.created_at))
+    from app.api.notifications import list_notifications
+    return await list_notifications(user_token=user_token, db=db)
+
+
+@advisor_router.post("/notifications/{notification_id}/read")
+async def mark_advisor_notification_read(
+    notification_id: uuid.UUID,
+    user_token: dict = Depends(require_role(Role.advisor)),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.api.notifications import mark_notification_read
+    return await mark_notification_read(notification_id=notification_id, user_token=user_token, db=db)
+
+
+##### officer stuff here
+
+@officer_router.get("")
+async def list_review_queue(
+    user_token: dict = Depends(require_role(Role.officer)),
+    db: AsyncSession = Depends(get_db)
+):
+    # Join Document with submitter (User) and optional claiming officer (ClaimingOfficer)
+    ClaimingOfficer = aliased(User)
+    query = (
+        select(Document, User, ClaimingOfficer)
+        .join(User, Document.advisor_id == User.id)
+        .outerjoin(ClaimingOfficer, Document.locked_by_officer_id == ClaimingOfficer.id)
+        .order_by(desc(Document.created_at))
+    )
     result = await db.execute(query)
     
+    current_officer_id = uuid.UUID(user_token["sub"]) if "sub" in user_token else None
     queue = []
-    #  returns tuples of Document, User 
-    for doc, user in result.all():
+    for doc, advisor, claiming_officer in result.all():
+        expired = is_lock_expired(doc)
+        effective_locked_by = None if expired else doc.locked_by_officer_id
+        effective_claiming_officer_name = None if expired else (claiming_officer.name if claiming_officer else None)
+
+        is_locked_by_me = effective_locked_by == current_officer_id if current_officer_id else False
+        is_locked_by_other = effective_locked_by is not None and not is_locked_by_me
+        effective_status = (
+            DocumentStatus.pending.value
+            if (expired and doc.status == DocumentStatus.in_review)
+            else doc.status.value
+        )
+
         queue.append({
             "id": str(doc.id),
             "name": doc.original_filename or doc.file_reference,
-            "submitter": user.name,
+            "submitter": advisor.name,
             "uploaded": doc.created_at.strftime("%b %d, %Y"),
-            "status": doc.status.value,
+            "status": effective_status,
             "file_type": doc.file_type,
-            "ai_analysis": doc.ai_analysis
+            "ai_analysis": doc.ai_analysis,
+            "locked_by_officer_id": str(effective_locked_by) if effective_locked_by else None,
+            "locked_by_officer_name": effective_claiming_officer_name,
+            "is_locked_by_me": is_locked_by_me,
+            "is_locked_by_other": is_locked_by_other,
         })
         
     return {"documents": queue}
@@ -77,35 +151,14 @@ async def submit_review(
     user_token: dict = Depends(require_role(Role.officer)),
     db: AsyncSession = Depends(get_db)
 ):
-    # Find the document
-    result = await db.execute(select(Document).where(Document.id == document_id))
-    doc = result.scalar_one_or_none()
-    
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-        
-    # Update the document's status
-
-    if request.decision.value == "approve":
-        doc.status = DocumentStatus.approved
-    elif request.decision.value == "reject":
-        doc.status = DocumentStatus.rejected
-    elif request.decision.value == "needs_revision":
-        doc.status = DocumentStatus.needs_revision
-        
-    # Save the official review comment for the Advisor to read!
-    new_review = Review(
-        document_id=doc.id,
-        officer_id=uuid.UUID(user_token["sub"]),
+    officer_id = uuid.UUID(user_token["sub"])
+    return await execute_officer_decision(
+        db=db,
+        document_id=document_id,
+        officer_id=officer_id,
         decision=request.decision,
-        comment=request.comment
+        comment=request.comment,
     )
-    db.add(new_review)
-    
-    # Commit both changes to Postgres
-    await db.commit()
-    
-    return {"message": f"Review recorded as {request.decision.value}"}
 @officer_router.get("/{document_id}/view")
 async def get_document_url(
     document_id: uuid.UUID,

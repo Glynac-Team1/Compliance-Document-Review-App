@@ -14,22 +14,43 @@ const fallbackSubmissions = [
 
 function StatusBadge({ status }: { status: string }) {
   const normalized = (status || '').toLowerCase()
-  const styles =
-    normalized === 'approved'
-      ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-      : normalized === 'pending' || normalized === 'in_review'
-      ? 'bg-amber-50 text-amber-700 ring-amber-200'
-      : 'bg-red-50 text-red-700 ring-red-200'
+  let styles = 'bg-amber-50 text-amber-700 ring-amber-200'
+  let label = status ? status.replace('_', ' ') : 'Pending'
+
+  if (normalized === 'approved') {
+    styles = 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+    label = 'Approved'
+  } else if (normalized === 'rejected') {
+    styles = 'bg-rose-50 text-rose-700 ring-rose-200'
+    label = 'Rejected'
+  } else if (normalized === 'needs_revision') {
+    styles = 'bg-sky-50 text-sky-700 ring-sky-200'
+    label = 'Needs Revision'
+  } else if (normalized === 'in_review') {
+    styles = 'bg-blue-50 text-blue-700 ring-blue-200'
+    label = 'In Review'
+  } else if (normalized === 'pending') {
+    styles = 'bg-amber-50 text-amber-700 ring-amber-200'
+    label = 'Pending'
+  }
 
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${styles}`}>
       <span className="size-1.5 rounded-full bg-current" />
-      {status}
+      {label}
     </span>
   )
 }
 
-export default function Submissions({ onUpload }: { onUpload: () => void }) {
+export default function Submissions({
+  onUpload,
+  refreshTrigger,
+  selectedDocId,
+}: {
+  onUpload: () => void
+  refreshTrigger?: number
+  selectedDocId?: string | null
+}) {
   const [documents, setDocuments] = useState<any[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
@@ -66,13 +87,39 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
 
   useEffect(() => {
     fetchDocuments()
-  }, [])
+  }, [refreshTrigger])
 
   useEffect(() => {
     setCurrentPage(1)
   }, [searchQuery, statusFilter])
 
   const [selectedDocument, setSelectedDocument] = useState<any | null>(null)
+
+  useEffect(() => {
+    if (selectedDocId && documents.length > 0) {
+      const target = documents.find((d) => d.id === selectedDocId)
+      if (target) {
+        setSelectedDocument(target)
+      } else {
+        const fetchTarget = async () => {
+          try {
+            const token = localStorage.getItem('auth_token')
+            if (!token) return
+            const res = await fetch(`${getApiBaseUrl()}/documents/${selectedDocId}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+            if (res.ok) {
+              const data = await res.json()
+              setSelectedDocument(data)
+            }
+          } catch (e) {
+            console.error('Failed to fetch selected document', e)
+          }
+        }
+        fetchTarget()
+      }
+    }
+  }, [selectedDocId, documents])
 
   useEffect(() => {
     if (!selectedDocument?.id) {
@@ -86,7 +133,7 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
         const token = localStorage.getItem('auth_token')
         if (!token) return
         const res = await fetch(`${getApiBaseUrl()}/documents/${selectedDocument.id}/thread`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         })
         if (res.ok) {
           const data = await res.json()
@@ -100,7 +147,7 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
     }
 
     fetchThread()
-  }, [selectedDocument])
+  }, [selectedDocument, refreshTrigger])
 
   const handleResubmit = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -195,8 +242,11 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
               </div>
               <p className="mt-3 text-sm leading-6 text-muted-foreground">
                 {selectedDocument.officer_comment ||
-                  'Document received and queued for compliance review.'}
+                  (selectedDocument.status?.toLowerCase() === 'in_review'
+                    ? 'Currently being reviewed by a compliance officer.'
+                    : 'Document received and queued for compliance review.')}
               </p>
+
             </div>
 
             {threadData && threadData.versions?.length > 1 && (
@@ -317,6 +367,7 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
   >
     <option value="All">All statuses</option>
     <option value="pending">Pending</option>
+    <option value="in_review">In Review</option>
     <option value="approved">Approved</option>
     <option value="needs_revision">Needs Revision</option>
     <option value="rejected">Rejected</option>

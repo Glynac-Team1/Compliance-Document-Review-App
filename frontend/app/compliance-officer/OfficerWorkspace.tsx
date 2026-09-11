@@ -6,9 +6,10 @@ import PdfViewer from "./PdfViewer"
 import Queue from './Queue'
 import ReviewPanel from './ReviewPanel'
 import UserNav from '@/components/UserNav'
+import NotificationPopover from '@/components/NotificationPopover'
+import { useLiveSync, AppNotification } from '@/lib/useLiveSync'
 import { getApiBaseUrl } from '@/lib/api'
 import {
-  Activity,
   ArrowLeft,
   BarChart3,
   FileCheck2,
@@ -42,9 +43,11 @@ function Brand() {
 function Nav({
   screen,
   setScreen,
+  refreshTrigger,
 }: {
   screen: Screen
   setScreen: (screen: Screen) => void
+  refreshTrigger?: number
 }) {
   const [queueCount, setQueueCount] = useState<number | null>(null)
 
@@ -59,9 +62,10 @@ function Nav({
         if (res.ok) {
           const data = await res.json()
           // Only count pending or in_review documents for the badge
-          const pending = data.documents.filter((d: any) => 
-            d.status.toLowerCase() !== 'approved' && d.status.toLowerCase() !== 'rejected'
-          )
+          const pending = data.documents.filter((d: any) => {
+            const s = (d.status || '').toLowerCase()
+            return s === 'pending' || s === 'in_review'
+          })
           setQueueCount(pending.length)
         }
       } catch (e) {
@@ -69,9 +73,9 @@ function Nav({
       }
     }
     fetchCount()
-    const interval = setInterval(fetchCount, 10000)
+    const interval = setInterval(fetchCount, 15000)
     return () => clearInterval(interval)
-  }, [])
+  }, [refreshTrigger])
 
   const items = [
     ['queue', 'Review queue', LayoutList],
@@ -109,10 +113,22 @@ function Shell({
   children,
   screen,
   setScreen,
+  refreshTrigger,
+  notifications,
+  unreadCount,
+  onMarkRead,
+  onMarkAllRead,
+  onSelectDocument,
 }: {
   children: React.ReactNode
   screen: Screen
   setScreen: (screen: Screen) => void
+  refreshTrigger?: number
+  notifications: AppNotification[]
+  unreadCount: number
+  onMarkRead: (id: string) => void
+  onMarkAllRead: () => void
+  onSelectDocument: (documentId: string) => void
 }) {
   const titleMap: Record<Screen, string> = {
     queue: 'Review queue',
@@ -125,7 +141,7 @@ function Shell({
     <main className="flex min-h-screen bg-background text-foreground">
       <aside className="hidden w-60 shrink-0 border-r border-border bg-card lg:flex lg:flex-col">
         <Brand />
-        <Nav screen={screen} setScreen={setScreen} />
+        <Nav screen={screen} setScreen={setScreen} refreshTrigger={refreshTrigger} />
 
         <div className="mt-auto border-t border-border p-3">
           <UserNav variant="sidebar" />
@@ -152,12 +168,13 @@ function Shell({
               </span>
               Live synced
             </span>
-            <button
-              className="rounded-md p-2 text-muted-foreground hover:bg-muted"
-              aria-label="Notifications"
-            >
-              <Activity className="size-4" />
-            </button>
+            <NotificationPopover
+              notifications={notifications}
+              unreadCount={unreadCount}
+              onMarkRead={onMarkRead}
+              onMarkAllRead={onMarkAllRead}
+              onSelectDocument={onSelectDocument}
+            />
             <div className="lg:hidden">
               <UserNav variant="header" />
             </div>
@@ -171,11 +188,15 @@ function Shell({
 }
 
 function Review({ doc, onBack }: { doc: Document; onBack: () => void }) {
+  const handleBack = () => {
+    onBack()
+  }
+
   return (
     <main className="flex min-h-screen flex-col bg-background lg:h-[calc(100vh-4rem)] lg:overflow-hidden">
       <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card px-5">
         <button
-          onClick={onBack}
+          onClick={handleBack}
           className="inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
@@ -247,6 +268,34 @@ export default function OfficerWorkspace({ slug }: OfficerWorkspaceProps) {
   const router = useRouter()
   const [screen, setScreen] = useState<Screen>('queue')
   const [selected, setSelected] = useState<Document | null>(null)
+  const [queueSyncTrigger, setQueueSyncTrigger] = useState(0)
+
+  const {
+    notifications,
+    unreadCount,
+    markAsRead,
+    markAllAsRead,
+  } = useLiveSync({
+    onSync: (_event, _docId) => {
+      setQueueSyncTrigger((prev) => prev + 1)
+    },
+  })
+
+  const handleSelectDocument = async (documentId: string) => {
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) return
+      const res = await fetch(`${getApiBaseUrl()}/documents/${documentId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const doc = await res.json()
+        setSelected(doc)
+      }
+    } catch (e) {
+      console.error('Failed to load document for review', e)
+    }
+  }
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -263,10 +312,31 @@ export default function OfficerWorkspace({ slug }: OfficerWorkspaceProps) {
   }, [router])
 
   return selected ? (
-    <Review doc={selected} onBack={() => setSelected(null)} />
+    <Review
+      doc={selected}
+      onBack={() => {
+        setSelected(null)
+        setQueueSyncTrigger((prev) => prev + 1)
+      }}
+    />
   ) : (
-    <Shell screen={screen} setScreen={setScreen}>
-      {screen === 'queue' ? <Queue onReview={setSelected} /> : <Placeholder screen={screen} />}
+    <Shell
+      screen={screen}
+      setScreen={setScreen}
+      refreshTrigger={queueSyncTrigger}
+      notifications={notifications}
+      unreadCount={unreadCount}
+      onMarkRead={markAsRead}
+      onMarkAllRead={markAllAsRead}
+      onSelectDocument={handleSelectDocument}
+    >
+      {screen === 'queue' ? (
+        <Queue onReview={setSelected} initialTab="unreviewed" refreshTrigger={queueSyncTrigger} />
+      ) : screen === 'recent' ? (
+        <Queue onReview={setSelected} initialTab="reviewed" refreshTrigger={queueSyncTrigger} />
+      ) : (
+        <Placeholder screen={screen} />
+      )}
     </Shell>
   )
 }
