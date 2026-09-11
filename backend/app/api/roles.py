@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from sqlalchemy.orm import aliased
@@ -7,7 +7,6 @@ from app.database import get_db
 from models import Role, Document, User, Review, DocumentStatus, Decision
 from pydantic import BaseModel
 import uuid
-from fastapi import HTTPException
 from app.api.documents import execute_officer_decision, is_lock_expired
 
 advisor_router = APIRouter()
@@ -159,6 +158,7 @@ async def submit_review(
         decision=request.decision,
         comment=request.comment,
     )
+
 @officer_router.get("/{document_id}/view")
 async def get_document_url(
     document_id: uuid.UUID,
