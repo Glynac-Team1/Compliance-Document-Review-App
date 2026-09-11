@@ -1,4 +1,3 @@
-# Compliance-Document-Review-App
 # Compliance Document Review App
 
 A web application that replaces ad-hoc compliance review with a shared queue, an immutable audit trail, and an AI assist panel that flags issues (missing disclosures, inconsistent claims, missing signatures) without ever making the decision itself. The human compliance officer always makes the final call.
@@ -15,7 +14,7 @@ See also: [`docs/technical-implementation-plan.md`](./docs/technical-implementat
 |---|---|---|
 | **Basamsetti Venkata Vamsi** | **AI Engineering** | PII masking pipelines (Presidio + custom regex), prompt engineering, structured JSON schema enforcement, and third-party LLM integrations (Gemini / Groq). |
 | **Kashish Agarwal** | **Backend Engineering** | FastAPI REST endpoints, session/role auth enforcement (server-side 403 gates), document lifecycle state machine, and Celery/Redis background task orchestration. |
-| **Daniel Ojo** | **Frontend Engineering** | Next.js + TypeScript SPA, split-pane review interface, TanStack Query integration, role-gated routes, and responsive UI/UX for loading & degraded states. |
+| **Daniel Ojo** | **Frontend Engineering** | Next.js 16 (App Router, Turbopack) + TypeScript SPA, split-pane review interface, Server-Sent Events (SSE) live sync, role-gated routes, and responsive UI/UX for loading & degraded states. |
 | **Jemarco Briz** | **Data Engineering** | Format-aware text extraction (PDF/DOCX/XLSX), local vector embeddings (`BAAI/bge-small-en-v1.5`), `pgvector` HNSW index architecture, and the 3-phase retrieval engine. |
 | **Cross-Track / Shared** | **DevOps & Platform** | Docker Compose orchestration, automated Alembic migration & seeding scripts on boot, environment controls, and GitHub Actions CI pipelines. |
 
@@ -35,13 +34,21 @@ See also: [`docs/technical-implementation-plan.md`](./docs/technical-implementat
 
 | Layer | Stack |
 |---|---|
-| Frontend | React + TypeScript, Vite, TanStack Query, Tailwind CSS |
+| Frontend | Next.js 16 (App Router, Turbopack) + TypeScript, Tailwind CSS v4, Lucide React, Vitest, Server-Sent Events (SSE) |
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 (async), Alembic, Celery + Redis |
 | Database | PostgreSQL 16 + `pgvector` (HNSW index) |
 | AI | Gemini API (Google AI Studio free tier) or Groq — no production Anthropic credits |
 | PII Masking | Microsoft Presidio + custom regex recognizers |
 | Embeddings | Local `sentence-transformers` (`BAAI/bge-small-en-v1.5`) — never sent to a third party |
 | Infra | Docker Compose, GitHub Actions CI |
+
+### Frontend & Real-Time Architecture Highlights
+
+- **Next.js 16 (Turbopack & App Router)**: Component-driven architecture built with strict TypeScript enforcement (`tsc --noEmit`), eliminating build error suppressions.
+- **Server-Sent Events (SSE) Live Sync**: Native real-time streaming via `useLiveSync` connecting to `/notifications/stream` and `/documents/stream`, automatically refreshing queues and review states without continuous client polling.
+- **Resilient AI Degradation**: Explicit UI handling for missing, partial, or failed AI analyses (`ai_status: "failed"` / `"pending"`), allowing compliance officers to proceed with manual reviews uninterrupted.
+- **Institutional Toast System**: Non-blocking, accessible visual feedback mounted globally at root layout (`frontend/components/Toast.tsx`), replacing default browser alerts with professional status messaging.
+- **Testing & Verification**: Vitest and `@testing-library/react` test suites verifying component resilience and degraded state handling (`frontend/__tests__/degraded-state.test.tsx`), accompanied by ESLint flat config.
 
 Full rationale for each choice is in [`docs/technical-implementation-plan.md §4`](./docs/technical-implementation-plan.md#4-tech-stack-by-track).
 
@@ -158,13 +165,14 @@ python3 -m venv .venv
 PYTHONPATH=backend .venv/bin/pytest -q
 ```
 
-Build the frontend locally when working on frontend code:
+Build and verify the frontend locally:
 
 ```bash
 cd frontend
 npm install
-npm run build
-npm test
+npm run lint    # ESLint check (0 errors, 0 warnings)
+npm test        # Vitest unit test suite (degraded AI states & fallback handling)
+npm run build   # Next.js production build with strict TypeScript type-checking
 cd ..
 ```
 
@@ -254,10 +262,8 @@ docker compose logs postgres
 
 For a clean local database, run `docker compose down -v` and start Compose again.
 
-### Current scaffold scope
+### Implementation Status
 
-The repository currently provides the runnable project foundation: health and upload
-API wiring, role-boundary authentication tests, initial Alembic migration, Docker
-services, and a minimal frontend/worker entry point. The full document lifecycle,
-PII masking pipeline, retrieval engine, seeded corpus, and complete review UI are
-planned next according to the [technical implementation plan](./docs/technical-implementation-plan.md).
+The application provides an end-to-end compliance review platform:
+- **Backend & Worker**: FastAPI REST API, Celery + Redis async worker pipeline, Presidio PII masking, local vector embeddings (`bge-small-en-v1.5`), `pgvector` retrieval engine, Server-Sent Events (SSE) notification streaming, and automated Alembic database migrations.
+- **Frontend**: Next.js 16 App Router interface with Turbopack, Tailwind CSS v4, split-pane advisor/compliance officer workflows, real-time live synchronization via SSE, institutional toast alerts, and graceful degradation handling when AI services are degraded or unavailable.
