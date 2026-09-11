@@ -139,11 +139,19 @@ export default function Queue({ onReview, initialTab = 'unreviewed', refreshTrig
     }
   }
 
-  // Derived counts
+  // Derived counts from real queue data
   const pendingCount = useMemo(() => {
+    return documents.filter((d) => (d.status || '').toLowerCase() === 'pending').length
+  }, [documents])
+
+  const inReviewCount = useMemo(() => {
+    return documents.filter((d) => (d.status || '').toLowerCase() === 'in_review').length
+  }, [documents])
+
+  const flaggedCount = useMemo(() => {
     return documents.filter((d) => {
-      const s = (d.status || '').toLowerCase()
-      return s === 'pending' || s === 'in_review'
+      const flags = d.ai_analysis?.flags
+      return Array.isArray(flags) && flags.length > 0
     }).length
   }, [documents])
 
@@ -234,16 +242,32 @@ export default function Queue({ onReview, initialTab = 'unreviewed', refreshTrig
           detail="Awaiting officer decision"
           icon={Clock3}
           tone="warning"
-          active={activeTab === 'unreviewed'}
+          active={activeTab === 'unreviewed' && statusFilter === 'pending'}
           onClick={() => {
             setActiveTab('unreviewed')
-            setStatusFilter('all')
+            setStatusFilter('pending')
           }}
         />
-        <Metric label="High priority" value="0" detail="Requires attention today" icon={AlertTriangle} tone="warning" />
-        <Metric label="Avg. review time" value="18m" detail="Down 12% this week" icon={Gauge} />
         <Metric
-          label="Reviewed this month"
+          label="In review"
+          value={inReviewCount.toString()}
+          detail="Claimed by officers"
+          icon={UserCheck}
+          active={activeTab === 'unreviewed' && statusFilter === 'in_review'}
+          onClick={() => {
+            setActiveTab('unreviewed')
+            setStatusFilter('in_review')
+          }}
+        />
+        <Metric
+          label="AI flags detected"
+          value={flaggedCount.toString()}
+          detail="Submissions with rule flags"
+          icon={AlertTriangle}
+          tone={flaggedCount > 0 ? 'warning' : 'default'}
+        />
+        <Metric
+          label="Reviewed decisions"
           value={reviewedCount.toString()}
           detail="Decisions recorded"
           icon={CircleCheck}

@@ -4,13 +4,6 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, FileText, Filter, Search, X, Upload, RefreshCw, Loader2, History } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
 
-const fallbackSubmissions = [
-  { name: 'Q3 Marketing Brochure', date: 'Oct 24, 2024', type: 'PDF', status: 'Approved' },
-  { name: 'Client Risk Assessment', date: 'Oct 22, 2024', type: 'DOCX', status: 'Pending' },
-  { name: 'Investment Policy Statement', date: 'Oct 18, 2024', type: 'PDF', status: 'Needs Revision' },
-  { name: 'Annual Financial Review', date: 'Oct 12, 2024', type: 'XLSX', status: 'Approved' },
-  { name: 'Client Onboarding Form', date: 'Oct 08, 2024', type: 'DOCX', status: 'Rejected' },
-]
 
 function StatusBadge({ status }: { status: string }) {
   const normalized = (status || '').toLowerCase()
@@ -184,8 +177,8 @@ export default function Submissions({
     }
   }
 
-    //  master list (either from DB or fallback)
-  const baseList = documents.length > 0 ? documents : fallbackSubmissions
+    // master list from DB
+  const baseList = documents
   
   // filtered list based on the search bar
   const displayList = baseList.filter((doc) => {
@@ -394,8 +387,36 @@ export default function Submissions({
                 <tbody className="divide-y divide-border">
                   {isLoading && documents.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-5 py-6 text-center text-muted-foreground">
-                        Loading documents...
+                      <td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <Loader2 className="size-5 animate-spin text-primary" />
+                          <p className="text-sm">Loading your submissions...</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : displayList.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-5 py-12 text-center text-muted-foreground">
+                        <div className="mx-auto flex max-w-sm flex-col items-center justify-center text-center">
+                          <div className="mb-3 flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+                            <FileText className="size-5" />
+                          </div>
+                          <p className="text-sm font-semibold text-foreground">No submissions found</p>
+                          <p className="mt-1 mb-4 text-xs text-muted-foreground">
+                            {searchQuery || statusFilter !== 'All'
+                              ? 'No documents match your filter criteria.'
+                              : 'You have not submitted any documents for compliance review yet.'}
+                          </p>
+                          {!searchQuery && statusFilter === 'All' && (
+                            <button
+                              onClick={onUpload}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
+                            >
+                              <Upload className="size-3.5" />
+                              Upload your first document
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ) : (
