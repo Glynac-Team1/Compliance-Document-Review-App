@@ -128,8 +128,9 @@ export default function Page() {
         router.push(`/compliance-officer/${targetSlug}`)
       }
 
-    } catch (error: any) {
-      setToast(error.message)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'An error occurred during authentication'
+      setToast(message)
     } finally {
       setLoading(false)
     }

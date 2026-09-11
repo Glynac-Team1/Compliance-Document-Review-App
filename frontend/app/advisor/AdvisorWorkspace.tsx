@@ -7,6 +7,7 @@ import UserNav from '@/components/UserNav'
 import NotificationPopover from '@/components/NotificationPopover'
 import { useLiveSync } from '@/lib/useLiveSync'
 import { getApiBaseUrl } from '@/lib/api'
+import { useToast } from '@/components/Toast'
 import {
   ArrowUpRight,
   BookOpen,
@@ -254,6 +255,7 @@ export default function AdvisorWorkspace({ slug }: AdvisorWorkspaceProps) {
     }
   }, [router])
 
+  const { toast } = useToast()
   const [screen, setScreen] = useState('Submissions')
   const [syncTrigger, setSyncTrigger] = useState(0)
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
@@ -281,7 +283,7 @@ export default function AdvisorWorkspace({ slug }: AdvisorWorkspaceProps) {
     try {
       const token = localStorage.getItem('auth_token')
       if (!token) {
-        alert('Security error: No authentication token found. Please log in again.')
+        toast.error('Authentication Required', 'No authentication token found. Please log in again.')
         return
       }
 
@@ -299,13 +301,20 @@ export default function AdvisorWorkspace({ slug }: AdvisorWorkspaceProps) {
       }
 
       const data = await response.json()
-      console.log('Backend Response:', data)
+
+      toast.success(
+        'Document Submitted',
+        `${data.filename || file.name} has been queued for compliance review.`
+      )
 
       setSyncTrigger((prev) => prev + 1)
       setUploaded(true)
       setTimeout(() => setUploaded(false), 3000)
-    } catch (error: any) {
-      alert('Upload failed: ' + error.message)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown upload error occurred'
+      toast.error('Upload Failed', message)
+    } finally {
+      if (fileInput.current) fileInput.current.value = ''
     }
   }
 

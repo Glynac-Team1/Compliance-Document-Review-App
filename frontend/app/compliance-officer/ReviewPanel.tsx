@@ -3,28 +3,31 @@
 import { useState, useEffect } from 'react'
 import { AlertTriangle, CircleCheck, Info, Sparkles, History, Loader2 } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
+import { useToast } from '@/components/Toast'
+import type { DocumentItem, DocumentThread, DocumentThreadVersion, AIAnalysis, ComplianceFlag } from '@/types/document'
 
 export default function ReviewPanel({
   doc,
   onSuccess,
   onStatusChange,
 }: {
-  doc: any
+  doc: DocumentItem
   onSuccess: () => void
   onStatusChange?: (status: string) => void
 }) {
+  const { toast } = useToast()
   const [tab, setTab] = useState<'AI Assist' | 'Manual Decision' | 'Thread History'>('AI Assist')
   const [decision, setDecision] = useState('Needs Revision')
   const [comments, setComments] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [threadData, setThreadData] = useState<any | null>(null)
+  const [threadData, setThreadData] = useState<DocumentThread | null>(null)
   const [isLoadingThread, setIsLoadingThread] = useState(false)
 
   const [claimStatus, setClaimStatus] = useState<'claiming' | 'claimed' | 'locked_by_other'>('claiming')
   const [lockMessage, setLockMessage] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
-  const [analysisData, setAnalysisData] = useState<any>(doc?.ai_analysis || null)
+  const [analysisData, setAnalysisData] = useState<AIAnalysis | null>(doc?.ai_analysis || null)
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(!doc?.ai_analysis)
   const [analysisStatusMessage, setAnalysisStatusMessage] = useState<string | null>(null)
 
@@ -164,6 +167,7 @@ export default function ReviewPanel({
       : (analysisStatusMessage || 'AI analysis is currently processing or unavailable.'),
     flags: [],
   }
+  const aiFlags = aiData.flags || []
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -186,14 +190,22 @@ export default function ReviewPanel({
       })
 
       if (response.ok) {
+        toast.success(
+          'Determination Saved',
+          `Document determination recorded as ${decision.toLowerCase()}.`
+        )
         onSuccess()
       } else {
         const err = await response.json()
-        setSubmitError(err.detail || 'Failed to record review determination.')
+        const msg = err.detail || 'Failed to record review determination.'
+        setSubmitError(msg)
+        toast.error('Submission Failed', msg)
         setIsSubmitting(false)
       }
     } catch {
-      setSubmitError('Network error while recording determination.')
+      const msg = 'Network error while recording determination.'
+      setSubmitError(msg)
+      toast.error('Submission Failed', msg)
       setIsSubmitting(false)
     }
   }
@@ -231,9 +243,9 @@ export default function ReviewPanel({
         >
           <History className="size-3.5" />
           <span>Thread History</span>
-          {threadData?.total_versions > 1 && (
+          {(threadData?.total_versions ?? 0) > 1 && (
             <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">
-              v{threadData.total_versions}
+              v{threadData?.total_versions}
             </span>
           )}
         </button>
@@ -286,7 +298,7 @@ export default function ReviewPanel({
                 <h2 className="text-sm font-semibold">Compliance Flags</h2>
               </div>
 
-              {aiData.flags.length === 0 ? (
+              {aiFlags.length === 0 ? (
                 <div className="flex items-center gap-2 rounded-lg border border-border p-4 text-sm text-muted-foreground">
                   <Info className="size-4 shrink-0" />
                   <span>
@@ -299,7 +311,7 @@ export default function ReviewPanel({
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
-                  {aiData.flags.map((flag: any, index: number) => (
+                  {aiFlags.map((flag: ComplianceFlag, index: number) => (
                     <div key={index} className="rounded-lg border border-border bg-card p-4 shadow-sm">
                       <div className="mb-3 flex items-center gap-2">
                         <AlertTriangle
@@ -433,7 +445,7 @@ export default function ReviewPanel({
               <div className="flex justify-center p-8 text-xs text-muted-foreground">Loading thread history...</div>
             ) : threadData?.versions?.length ? (
               <div className="relative ml-2 space-y-5 border-l border-border/80 pl-4">
-                {threadData.versions.map((ver: any) => {
+                {threadData.versions.map((ver: DocumentThreadVersion) => {
                   const isCurrent = ver.document_id === doc.id
                   return (
                     <div key={ver.document_id} className="relative">

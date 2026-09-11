@@ -21,8 +21,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
 } from 'lucide-react'
-
-type Document = any
+import type { DocumentItem, DocumentStatus } from '@/types/document'
 
 type Screen = 'queue' | 'recent' | 'analytics' | 'settings'
 
@@ -101,7 +100,7 @@ function Nav({
         if (res.ok) {
           const data = await res.json()
           // Only count pending or in_review documents for the badge
-          const pending = data.documents.filter((d: any) => {
+          const pending = data.documents.filter((d: DocumentItem) => {
             const s = (d.status || '').toLowerCase()
             return s === 'pending' || s === 'in_review'
           })
@@ -190,7 +189,7 @@ function Review({
   onSelectDocument,
   onStatusChange,
 }: {
-  doc: Document
+  doc: DocumentItem
   onBack: () => void
   onOpenMobileNav: () => void
   notifications: AppNotification[]
@@ -375,7 +374,7 @@ interface OfficerWorkspaceProps {
 export default function OfficerWorkspace({ slug }: OfficerWorkspaceProps) {
   const router = useRouter()
   const [screen, setScreen] = useState<Screen>('queue')
-  const [selected, setSelected] = useState<Document | null>(null)
+  const [selected, setSelected] = useState<DocumentItem | null>(null)
   const [queueSyncTrigger, setQueueSyncTrigger] = useState(0)
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -406,7 +405,7 @@ export default function OfficerWorkspace({ slug }: OfficerWorkspaceProps) {
     },
   })
 
-  const handleOpenReview = (doc: any) => {
+  const handleOpenReview = (doc: DocumentItem) => {
     setSelected(doc)
     if (doc?.id) {
       try {
@@ -434,9 +433,9 @@ export default function OfficerWorkspace({ slug }: OfficerWorkspaceProps) {
   }
 
   const handleStatusChange = (newStatus: string) => {
-    setSelected((prev: any) => {
+    setSelected((prev: DocumentItem | null) => {
       if (!prev) return null
-      return { ...prev, status: newStatus }
+      return { ...prev, status: newStatus as DocumentStatus }
     })
     setQueueSyncTrigger((prev) => prev + 1)
   }

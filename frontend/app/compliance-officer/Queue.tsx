@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ChevronLeft, ChevronRight, CircleCheck, Clock3, FileText, Filter, Gauge, Search, Lock, UserCheck } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
+import type { DocumentItem } from '@/types/document'
 
 export type QueueTab = 'unreviewed' | 'reviewed' | 'all'
 
@@ -18,7 +19,7 @@ function Metric({
   label: string
   value: string
   detail: string
-  icon: any
+  icon: React.ComponentType<{ className?: string }>
   tone?: 'default' | 'warning'
   active?: boolean
   onClick?: () => void
@@ -71,13 +72,13 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 interface QueueProps {
-  onReview: (doc: any) => void
+  onReview: (doc: DocumentItem) => void
   initialTab?: QueueTab
   refreshTrigger?: number
 }
 
 export default function Queue({ onReview, initialTab = 'unreviewed', refreshTrigger }: QueueProps) {
-  const [documents, setDocuments] = useState<any[]>([])
+  const [documents, setDocuments] = useState<DocumentItem[]>([])
   const [activeTab, setActiveTab] = useState<QueueTab>(initialTab)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [query, setQuery] = useState('')

@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, FileText, Filter, Search, X, Upload, RefreshCw, Loader2, History } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
+import { useToast } from '@/components/Toast'
+import type { DocumentItem, DocumentThread, DocumentThreadVersion } from '@/types/document'
 
 
 function StatusBadge({ status }: { status: string }) {
@@ -44,14 +46,15 @@ export default function Submissions({
   refreshTrigger?: number
   selectedDocId?: string | null
 }) {
-  const [documents, setDocuments] = useState<any[]>([])
+  const { toast } = useToast()
+  const [documents, setDocuments] = useState<DocumentItem[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [statusFilter, setStatusFilter] = useState('All')
   const itemsPerPage = 5
 
   const [isLoading, setIsLoading] = useState(true)
-  const [threadData, setThreadData] = useState<any | null>(null)
+  const [threadData, setThreadData] = useState<DocumentThread | null>(null)
   const [isLoadingThread, setIsLoadingThread] = useState(false)
   const [isResubmitting, setIsResubmitting] = useState(false)
   const resubmitInputRef = useRef<HTMLInputElement>(null)
@@ -86,7 +89,7 @@ export default function Submissions({
     setCurrentPage(1)
   }, [searchQuery, statusFilter])
 
-  const [selectedDocument, setSelectedDocument] = useState<any | null>(null)
+  const [selectedDocument, setSelectedDocument] = useState<DocumentItem | null>(null)
 
   useEffect(() => {
     if (selectedDocId && documents.length > 0) {
@@ -154,7 +157,7 @@ export default function Submissions({
     try {
       const token = localStorage.getItem('auth_token')
       if (!token) {
-        alert('Authentication required')
+        toast.error('Authentication Required', 'Please log in to submit document revisions.')
         return
       }
       const res = await fetch(`${getApiBaseUrl()}/documents`, {
@@ -166,11 +169,15 @@ export default function Submissions({
         const err = await res.json()
         throw new Error(err.detail || 'Resubmission failed')
       }
-      alert('Revision submitted successfully! It is now pending compliance review.')
+      toast.success(
+        'Revision Submitted',
+        'Your document revision was submitted and is now pending compliance review.'
+      )
       await fetchDocuments()
       setSelectedDocument(null)
-    } catch (err: any) {
-      alert('Resubmission error: ' + err.message)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown resubmission error occurred'
+      toast.error('Resubmission Failed', message)
     } finally {
       setIsResubmitting(false)
       if (resubmitInputRef.current) resubmitInputRef.current.value = ''
@@ -249,7 +256,7 @@ export default function Submissions({
                   <span>Revision Thread ({threadData.total_versions} versions)</span>
                 </div>
                 <div className="max-h-36 space-y-2 overflow-y-auto pr-1">
-                  {threadData.versions.map((ver: any) => (
+                  {threadData.versions.map((ver: DocumentThreadVersion) => (
                     <div
                       key={ver.document_id}
                       className={`flex items-center justify-between rounded-md p-2 text-xs transition ${
