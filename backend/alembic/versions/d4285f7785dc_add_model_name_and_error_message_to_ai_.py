@@ -25,6 +25,7 @@ def upgrade() -> None:
     op.alter_column('precedents', 'decision',
                existing_type=sa.VARCHAR(),
                type_=sa.Enum('approve', 'reject', 'needs_revision', name='decision'),
+               postgresql_using='decision::text::decision',
                existing_nullable=False)
     op.alter_column('precedents', 'comment',
                existing_type=sa.VARCHAR(),
@@ -40,6 +41,7 @@ def downgrade() -> None:
     op.alter_column('precedents', 'decision',
                existing_type=sa.Enum('approve', 'reject', 'needs_revision', name='decision'),
                type_=sa.VARCHAR(),
+               postgresql_using='decision::text',
                existing_nullable=False)
     op.drop_column('ai_analyses', 'error_message')
     op.drop_column('ai_analyses', 'model_name')
