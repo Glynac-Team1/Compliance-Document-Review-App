@@ -606,16 +606,24 @@ async def get_document_details(
             claiming_officer_name = officer.name
 
     expired = is_lock_expired(target_doc)
-    effective_locked_by = None if expired else target_doc.locked_by_officer_id
-    effective_officer_name = None if expired else claiming_officer_name
-    is_locked_by_me = effective_locked_by == caller_id if caller_role == Role.officer.value else False
-    is_locked_by_other = effective_locked_by is not None and not is_locked_by_me
+    is_claimed_by_me = target_doc.locked_by_officer_id == caller_id if caller_role == Role.officer.value else False
 
-    effective_status = (
-        DocumentStatus.pending.value
-        if (expired and target_doc.status == DocumentStatus.in_review)
-        else target_doc.status.value
-    )
+    if is_claimed_by_me or caller_role == Role.advisor.value:
+        effective_locked_by = target_doc.locked_by_officer_id
+        effective_officer_name = claiming_officer_name
+        is_locked_by_me = is_claimed_by_me
+        is_locked_by_other = False
+        effective_status = target_doc.status.value
+    else:
+        effective_locked_by = None if expired else target_doc.locked_by_officer_id
+        effective_officer_name = None if expired else claiming_officer_name
+        is_locked_by_me = False
+        is_locked_by_other = effective_locked_by is not None
+        effective_status = (
+            DocumentStatus.pending.value
+            if (expired and target_doc.status == DocumentStatus.in_review)
+            else target_doc.status.value
+        )
 
     return {
         "id": str(target_doc.id),

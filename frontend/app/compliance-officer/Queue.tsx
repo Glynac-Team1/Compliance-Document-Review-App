@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CircleCheck, Clock3, FileText, Filter, Gauge, Search, Lock, UserCheck } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, ChevronRight, CircleCheck, Clock3, FileText, Filter, Gauge, Search, Lock, UserCheck } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
 
 export type QueueTab = 'unreviewed' | 'reviewed' | 'all'
@@ -81,7 +81,14 @@ export default function Queue({ onReview, initialTab = 'unreviewed', refreshTrig
   const [activeTab, setActiveTab] = useState<QueueTab>(initialTab)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [query, setQuery] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 5
   const [isLoading, setIsLoading] = useState(true)
+
+  // Reset pagination when active tab, status filter, or search query changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [activeTab, statusFilter, query])
 
   // Synchronize when initialTab changes from parent
   useEffect(() => {
@@ -197,6 +204,12 @@ export default function Queue({ onReview, initialTab = 'unreviewed', refreshTrig
       { value: 'rejected', label: 'Rejected' },
     ]
   }, [activeTab])
+
+  // Pagination math (5 documents per page, matching Advisor Submissions)
+  const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage))
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedList = filtered.slice(startIndex, endIndex)
 
   return (
     <div className="mx-auto max-w-[1400px] p-5 lg:p-8">
@@ -379,7 +392,7 @@ export default function Queue({ onReview, initialTab = 'unreviewed', refreshTrig
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.map((doc) => {
+              {paginatedList.map((doc) => {
                 const isReviewed = ['approved', 'rejected', 'needs_revision'].includes(
                   (doc.status || '').toLowerCase()
                 )
@@ -506,6 +519,31 @@ export default function Queue({ onReview, initialTab = 'unreviewed', refreshTrig
               : 'No documents found in the queue.'}
           </div>
         ) : null}
+
+        {/* Pagination Bar - Aligned with advisor submissions style */}
+        <div className="flex items-center justify-between border-t border-border px-5 py-3 text-sm text-muted-foreground">
+          <span>
+            Showing {filtered.length === 0 ? 0 : startIndex + 1}–{Math.min(endIndex, filtered.length)} of {filtered.length}
+          </span>
+          <div className="flex gap-1">
+            <button 
+              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+              disabled={currentPage === 1 || filtered.length === 0}
+              aria-label="Previous page" 
+              className="rounded p-1.5 hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+            <button 
+              onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={currentPage >= totalPages || filtered.length === 0}
+              aria-label="Next page" 
+              className="rounded p-1.5 hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition"
+            >
+              <ChevronRight className="size-4" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )

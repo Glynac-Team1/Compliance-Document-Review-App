@@ -31,12 +31,9 @@ async def list_my_documents(
     formatted_docs = []
     for doc, claiming_officer in rows:
         expired = is_lock_expired(doc)
-        effective_claiming_officer = None if expired else claiming_officer
-        effective_status = (
-            DocumentStatus.pending.value
-            if (expired and doc.status == DocumentStatus.in_review)
-            else doc.status.value
-        )
+        # For the advisor, if the document has been claimed/in review, preserve in_review unless released
+        effective_claiming_officer = claiming_officer
+        effective_status = doc.status.value
 
         # Fetch the latest review for this document
         rev_query = select(Review).where(Review.document_id == doc.id).order_by(desc(Review.decided_at)).limit(1)
@@ -111,16 +108,25 @@ async def list_review_queue(
     queue = []
     for doc, advisor, claiming_officer in result.all():
         expired = is_lock_expired(doc)
-        effective_locked_by = None if expired else doc.locked_by_officer_id
-        effective_claiming_officer_name = None if expired else (claiming_officer.name if claiming_officer else None)
+        is_claimed_by_me = doc.locked_by_officer_id == current_officer_id if current_officer_id else False
 
-        is_locked_by_me = effective_locked_by == current_officer_id if current_officer_id else False
-        is_locked_by_other = effective_locked_by is not None and not is_locked_by_me
-        effective_status = (
-            DocumentStatus.pending.value
-            if (expired and doc.status == DocumentStatus.in_review)
-            else doc.status.value
-        )
+        if is_claimed_by_me:
+            # If claimed by this officer, retain claim and in_review status so they can resume anytime
+            effective_locked_by = doc.locked_by_officer_id
+            effective_claiming_officer_name = claiming_officer.name if claiming_officer else None
+            is_locked_by_me = True
+            is_locked_by_other = False
+            effective_status = doc.status.value
+        else:
+            effective_locked_by = None if expired else doc.locked_by_officer_id
+            effective_claiming_officer_name = None if expired else (claiming_officer.name if claiming_officer else None)
+            is_locked_by_me = False
+            is_locked_by_other = effective_locked_by is not None
+            effective_status = (
+                DocumentStatus.pending.value
+                if (expired and doc.status == DocumentStatus.in_review)
+                else doc.status.value
+            )
 
         queue.append({
             "id": str(doc.id),

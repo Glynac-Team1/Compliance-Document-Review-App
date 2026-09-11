@@ -4,7 +4,15 @@ import { useState, useEffect } from 'react'
 import { AlertTriangle, CircleCheck, Info, Sparkles, History, Loader2 } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
 
-export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: () => void }) {
+export default function ReviewPanel({
+  doc,
+  onSuccess,
+  onStatusChange,
+}: {
+  doc: any
+  onSuccess: () => void
+  onStatusChange?: (status: string) => void
+}) {
   const [tab, setTab] = useState<'AI Assist' | 'Manual Decision' | 'Thread History'>('AI Assist')
   const [decision, setDecision] = useState('Needs Revision')
   const [comments, setComments] = useState('')
@@ -102,6 +110,7 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
         if (!isMounted) return
         if (res.ok) {
           setClaimStatus('claimed')
+          onStatusChange?.('in_review')
         } else if (res.status === 409) {
           const data = await res.json()
           setClaimStatus('locked_by_other')
@@ -190,7 +199,7 @@ export default function ReviewPanel({ doc, onSuccess }: { doc: any; onSuccess: (
   }
 
   return (
-    <aside className="flex w-full shrink-0 flex-col border-t border-border bg-card lg:w-[40%] lg:border-l lg:border-t-0">
+    <aside className="flex w-full shrink-0 flex-col border-t border-border bg-card lg:w-[420px] xl:w-[460px] 2xl:w-[500px] lg:border-l lg:border-t-0 h-full min-h-0 overflow-hidden">
       <div className="flex h-14 shrink-0 items-end gap-5 border-b border-border px-5 sm:px-6">
         <button
           onClick={() => setTab('AI Assist')}
