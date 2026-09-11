@@ -1,3 +1,19 @@
+# ---- Stage 1: build dependencies in an isolated layer ----
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt ./backend-requirements.txt
+COPY worker/requirements.txt ./worker-requirements.txt
+
+RUN pip install --no-cache-dir --prefix=/install -r backend-requirements.txt -r worker-requirements.txt
+
+# ---- Stage 2: slim runtime image ----
 FROM python:3.12-slim
 
 WORKDIR /app
@@ -8,12 +24,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Reuse installed packages from the existing backend image
-COPY --from=compliance-document-review-app-backend:latest /usr/local /usr/local
-
-# Install worker-specific document extractors (pdfplumber, openpyxl, fpdf2)
-COPY worker/requirements.txt ./worker-requirements.txt
-RUN pip install --default-timeout=100 --no-cache-dir -r worker-requirements.txt
+# Copy installed Python packages from the builder stage
+COPY --from=builder /install /usr/local
 
 RUN useradd --create-home --uid 1000 appuser \
     && mkdir -p /home/appuser/.cache/huggingface \
