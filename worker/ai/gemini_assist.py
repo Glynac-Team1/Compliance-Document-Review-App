@@ -268,7 +268,7 @@ class GeminiAssistEngine:
             "provider": validated.provider,
             "model": validated.model,
         }
-        def build_payload_from_masked(
+    def build_payload_from_masked(
         self,
         masked_text: str,
         rules_context: list,
