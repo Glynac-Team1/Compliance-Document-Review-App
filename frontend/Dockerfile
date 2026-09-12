@@ -1,9 +1,20 @@
 FROM node:20-alpine
 WORKDIR /app
-COPY package.json .
-RUN npm install
+
+# Copy package manifests for deterministic install
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# Copy project source
 COPY . .
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
+
+# Build production Next.js bundle
+RUN npm run build
+
+ENV NODE_ENV=production \
+    PORT=3000 \
+    HOSTNAME="0.0.0.0"
+
 EXPOSE 3000
-CMD ["npm", "run", "dev"]
+
+CMD ["npm", "run", "start"]

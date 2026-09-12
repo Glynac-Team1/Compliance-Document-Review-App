@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useState, useRef, useEffect } from 'react'
+import { FormEvent, useState, useEffect } from 'react'
 import { ArrowRight, Check, Eye, EyeOff, LockKeyhole, ShieldCheck, Sparkles, UserRound } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { getApiBaseUrl } from '@/lib/api'
@@ -128,8 +128,9 @@ export default function Page() {
         router.push(`/compliance-officer/${targetSlug}`)
       }
 
-    } catch (error: any) {
-      setToast(error.message)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'An error occurred during authentication'
+      setToast(message)
     } finally {
       setLoading(false)
     }

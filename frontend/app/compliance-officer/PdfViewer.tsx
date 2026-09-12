@@ -2,8 +2,9 @@
 import { useState, useEffect } from 'react'
 import { FileText, Loader2, Download, FileType } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
+import type { DocumentItem } from '@/types/document'
 
-export default function PdfViewer({ doc }: { doc: any }) {
+export default function PdfViewer({ doc }: { doc: DocumentItem }) {
   const [url, setUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
