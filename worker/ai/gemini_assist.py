@@ -85,7 +85,7 @@ class GeminiAssistEngine:
             f"=== COMPLIANCE RULES CORPUS ===\n{rules_str}\n\n"
             f"=== SUBMITTED DOCUMENT TEXT (PII SANITIZED) ===\n{masked_text}"
         )
-
+        
         if self.provider == "groq":
             payload = {
                 "model": os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
@@ -268,3 +268,83 @@ class GeminiAssistEngine:
             "provider": validated.provider,
             "model": validated.model,
         }
+        def build_payload_from_masked(
+        self,
+        masked_text: str,
+        rules_context: list,
+        missing_disclosures: list | None = None,
+        precedents: list | None = None,
+    ) -> dict:
+        """Like get_outbound_payload, but for text ALREADY masked
+        upstream by the pipeline (before chunking/embedding), instead
+        of masking it here. Masking happens exactly once per document,
+        at the top of the pipeline — see worker/ai/pipeline.py."""
+        system_instruction = (
+            "You are a Compliance Officer AI Assistant. Analyze the provided document text "
+            "against compliance rules, missing disclosures, and similar past decisions. "
+            "Return ONLY a JSON object with two fields:\n"
+            "1. 'summary': A 2-3 sentence overview of the submission.\n"
+            "2. 'flags': A list of compliance flags, where each flag contains:\n"
+            "   - 'passage': exact excerpt from document\n"
+            "   - 'matched_rule_id': applicable rule ID from RULES or DISCLOSURES below\n"
+            "   - 'severity': 'HIGH', 'MEDIUM', or 'LOW'\n"
+            "   - 'explanation': one-line reason why the passage violates the rule.\n"
+            "Only cite a matched_rule_id that actually appears in RULES or DISCLOSURES below — "
+            "never invent a rule ID. Do NOT invent extra fields. Output valid JSON only."
+        )
+
+        parts = [f"RULES:\n{json.dumps(rules_context)}"]
+        if missing_disclosures:
+            parts.append(f"DISCLOSURES CURRENTLY MISSING FROM THIS DOCUMENT:\n{json.dumps(missing_disclosures)}")
+        if precedents:
+            parts.append(f"SIMILAR PAST DECISIONS (for consistency reference):\n{json.dumps(precedents)}")
+        parts.append(f"DOCUMENT TEXT:\n{masked_text}")
+
+        return {
+            "contents": [{"parts": [{"text": "\n\n".join(parts)}]}],
+            "systemInstruction": {"parts": [{"text": system_instruction}]},
+            "generationConfig": {"responseMimeType": "application/json"},
+        }
+
+    def analyze_masked_document(
+        self,
+        masked_text: str,
+        mapping: dict[str, str],
+        rules_context: list,
+        missing_disclosures: list | None = None,
+        precedents: list | None = None,
+    ) -> dict:
+        """Entry point for the wired pipeline. Unlike analyze_document(),
+        does NOT mask internally — the caller already masked once,
+        upstream, and passes the resulting mapping through for
+        unmasking the response at the end."""
+        payload = self.build_payload_from_masked(masked_text, rules_context, missing_disclosures, precedents)
+        fallback_response = {
+            "summary": "AI Assist unavailable (API Key missing or service degraded). Officer manual review required.",
+            "flags": [],
+            "degraded": True,
+        }
+
+        if not self.api_key:
+            print("[WARN] No LLM_API_KEY set. Gracefully degrading AI assist.")
+            return fallback_response
+
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+        try:
+            request = urllib.request.Request(
+                f"{url}?key={self.api_key}",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=20) as response:
+                result = json.loads(response.read().decode("utf-8"))
+                analysis = json.loads(result["candidates"][0]["content"]["parts"][0]["text"])
+                analysis["summary"] = self.masker.unmask(analysis.get("summary", ""), mapping)
+                for flag in analysis.get("flags", []):
+                    flag["passage"] = self.masker.unmask(flag.get("passage", ""), mapping)
+                    flag["explanation"] = self.masker.unmask(flag.get("explanation", ""), mapping)
+                analysis["degraded"] = False
+                return analysis
+        except (OSError, ValueError, KeyError, urllib.error.URLError) as error:
+            print(f"[ERROR] API call failed: {error}. Falling back gracefully.")
+            return fallback_response
