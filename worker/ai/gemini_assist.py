@@ -338,6 +338,7 @@ class GeminiAssistEngine:
 
     def build_payload_from_masked(
         self,
+        masked_text: str,
         rules_context: Optional[List[Dict[str, str]]] = None,
         missing_disclosures: Optional[List[Any]] = None,
         precedents: Optional[List[Any]] = None,
