@@ -93,7 +93,11 @@ def analyze_document(document_id: str) -> dict:
                 # 4. Outbound LLM Generation
                 # Dispatches only sanitized text and retrieved rules to external AI providers.
                 ai_engine = GeminiAssistEngine()
-                analysis = ai_engine.analyze_document(masked_text, rules_context=rules_context)
+                analysis = ai_engine.analyze_masked_document(
+                    masked_text,
+                    pii_mapping,
+                    rules_context or [],
+                )
 
                 # 5. Entity Unmasking for Authorized Officer Display
                 # Re-inject original values into the summary and flag excerpts before persistence.
