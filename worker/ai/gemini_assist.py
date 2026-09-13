@@ -8,9 +8,21 @@ import json
 import logging
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+
+try:
+    from tenacity import (
+        retry,
+        stop_after_attempt,
+        wait_exponential,
+        retry_if_exception,
+    )
+    HAS_TENACITY = True
+except ImportError:
+    HAS_TENACITY = False
 
 from .pii_masker import PIIMasker
 from .rules_corpus import get_default_rules
@@ -18,6 +30,42 @@ from .schemas import AIAnalysisResult, ComplianceFlag
 
 
 logger = logging.getLogger(__name__)
+
+
+def _is_retryable_http_error(exc: BaseException) -> bool:
+    """Check if exception is a retryable HTTP status (429 Rate Limit or 5xx Server Error)."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code == 429 or 500 <= exc.code < 600
+    if isinstance(exc, urllib.error.URLError):
+        return True
+    return False
+
+
+if HAS_TENACITY:
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+        retry=retry_if_exception(_is_retryable_http_error),
+    )
+    def _execute_request_with_retry(req: urllib.request.Request, timeout: int = 20) -> Any:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+else:
+    def _execute_request_with_retry(req: urllib.request.Request, timeout: int = 20) -> Any:
+        attempts = 3
+        last_error = None
+        for attempt in range(1, attempts + 1):
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except Exception as e:
+                last_error = e
+                if attempt < attempts and _is_retryable_http_error(e):
+                    time.sleep(2 ** (attempt - 1))
+                    continue
+                raise
+        raise last_error or RuntimeError("Network request failed after retries.")
 
 
 class GeminiAssistEngine:
@@ -34,10 +82,11 @@ class GeminiAssistEngine:
         "You must evaluate two types of compliance concerns:\n"
         "1. PROHIBITED CLAIMS: Identify exact statements that violate rules (e.g. guarantees, exaggerated returns, risk-free claims).\n"
         "   For these, set 'passage' to the exact excerpt from the document.\n"
-        "2. MISSING DISCLOSURES BY ABSENCE: If the document discusses securities, investment performance, portfolio strategies, "
-        "   or tax/legal matters, check whether mandatory disclosures (e.g., 'Past performance is no guarantee of future results', "
-        "   'Investments are subject to market risk, including possible loss of principal', fee schedules, or tax disclaimers) are ABSENT.\n"
-        "   If a required disclosure is missing, set 'passage' to '[MISSING MANDATORY DISCLOSURE]'.\n\n"
+        "2. MISSING DISCLOSURES BY ABSENCE: Mandatory disclosure absence is detected upstream by vector analysis.\n"
+        "   If missing disclosures are supplied in the prompt context under 'DISCLOSURES IDENTIFIED AS MISSING', or if the document\n"
+        "   clearly discusses securities/performance without required disclaimers (e.g. 'Past performance is no guarantee of future results',\n"
+        "   'Investments are subject to market risk, including possible loss of principal', fee schedules, or tax disclaimers),\n"
+        "   orient the reviewer by explaining the regulatory gap and set 'passage' to '[MISSING MANDATORY DISCLOSURE]'.\n\n"
         "Return ONLY a valid JSON object matching this exact schema:\n"
         "{\n"
         "  \"summary\": \"2-3 sentence overview of the submission, its topic, and general compliance posture.\",\n"
@@ -130,28 +179,30 @@ class GeminiAssistEngine:
         }
 
     def _call_gemini_api(self, payload: Dict[str, Any]) -> Tuple[str, str]:
-        """Calls Google AI Studio Gemini API with model fallback."""
+        """Calls Google AI Studio Gemini API with model fallback, secure headers, and exponential backoff."""
         if not self.gemini_api_key:
             raise ValueError("GEMINI_API_KEY / LLM_API_KEY is missing.")
 
         candidate_models = list(dict.fromkeys([
-            os.environ.get("GEMINI_MODEL", "gemini-1.5-flash"),
+            os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
             "gemini-2.0-flash",
-            "gemini-2.5-flash",
+            "gemini-1.5-flash",
         ]))
 
         last_error = None
         for model in candidate_models:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.gemini_api_key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
             try:
                 req = urllib.request.Request(
                     url,
                     data=json.dumps(payload).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": self.gemini_api_key,
+                    },
                 )
-                with urllib.request.urlopen(req, timeout=20) as response:
-                    res_body = json.loads(response.read().decode("utf-8"))
-                    return self._extract_gemini_text(res_body), model
+                res_body = _execute_request_with_retry(req, timeout=20)
+                return self._extract_gemini_text(res_body), model
             except urllib.error.HTTPError as e:
                 last_error = e
                 # If 404 (model not found), try next model in candidate list
@@ -165,7 +216,7 @@ class GeminiAssistEngine:
         raise last_error or RuntimeError("All Gemini model endpoints failed.")
 
     def _call_groq_api(self, payload: Dict[str, Any]) -> Tuple[str, str]:
-        """Calls Groq OpenAI-compatible Chat Completions API."""
+        """Calls Groq OpenAI-compatible Chat Completions API with exponential backoff."""
         api_key = self.groq_api_key or self.gemini_api_key
         if not api_key:
             raise ValueError("GROQ_API_KEY / LLM_API_KEY is missing.")
@@ -179,9 +230,8 @@ class GeminiAssistEngine:
                 "Authorization": f"Bearer {api_key}",
             },
         )
-        with urllib.request.urlopen(req, timeout=20) as response:
-            res_body = json.loads(response.read().decode("utf-8"))
-            return self._extract_groq_text(res_body), payload.get("model", "llama-3.3-70b-versatile")
+        res_body = _execute_request_with_retry(req, timeout=20)
+        return self._extract_groq_text(res_body), payload.get("model", "llama-3.3-70b-versatile")
 
     @staticmethod
     def _extract_gemini_text(response: Mapping[str, Any]) -> str:
