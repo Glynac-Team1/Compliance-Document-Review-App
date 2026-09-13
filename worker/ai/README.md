@@ -94,6 +94,15 @@ Run the automated inspection tool:
 python scripts/inspect_outbound_payload.py fixtures/sample_docs/04_high_pii_client_agreement.txt
 ```
 
+The worker container runs Alembic migrations and idempotent rules and synthetic
+precedent seeding before Celery starts. No manual corpus-seeding command is
+required for a fresh deployment.
+
+Disclosure thresholds can be evaluated with labeled examples using
+`worker.data_eng.evaluate_disclosure_threshold`. F1 is used to balance missed
+disclosures against false alarms; a small example set is calibration evidence,
+not a statistically significant quality estimate.
+
 The script prints the raw text, local reverse mapping table, the exact HTTP JSON payload sent outbound, and runs automated assertions asserting zero raw PII leakage.
 
 ---
