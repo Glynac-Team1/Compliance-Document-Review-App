@@ -30,13 +30,12 @@ CORPUS_VERSION = "v1"
 
 async def upsert_rule(session, rule_dict: dict) -> str:
     """Insert a new rule row, or update an existing one in place if its
-    rule_key already exists. Returns 'inserted' or 'updated' for logging."""
-    embedding = embed_text(rule_dict["text"])
-
+    rule_key already exists. Returns 'inserted', 'updated', or 'skipped'."""
     result = await session.execute(select(Rule).where(Rule.rule_key == rule_dict["id"]))
     existing = result.scalar_one_or_none()
 
     if existing is None:
+        embedding = embed_text(rule_dict["text"])
         session.add(
             Rule(
                 rule_key=rule_dict["id"],
@@ -50,19 +49,27 @@ async def upsert_rule(session, rule_dict: dict) -> str:
         )
         return "inserted"
 
+    if (
+        existing.rule_type == rule_dict["category"]
+        and existing.text == rule_dict["text"]
+        and existing.corpus_version == CORPUS_VERSION
+        and existing.embedding_model == EMBEDDING_MODEL_NAME
+    ):
+        return "skipped"
+
     # Update in place: text may have changed since the last seed run,
     # and if it has, the embedding MUST be regenerated to match —
     # a stale embedding paired with new text is worse than no embedding.
     existing.rule_type = rule_dict["category"]
     existing.text = rule_dict["text"]
-    existing.embedding = embedding
+    existing.embedding = embed_text(rule_dict["text"])
     existing.corpus_version = CORPUS_VERSION
     existing.embedding_model = EMBEDDING_MODEL_NAME
     return "updated"
 
 
 async def main() -> None:
-    inserted = updated = 0
+    inserted = updated = skipped = 0
 
     async with AsyncSessionLocal() as session:
         for rule_dict in COMPLIANCE_RULES_CORPUS:
@@ -70,15 +77,19 @@ async def main() -> None:
             if outcome == "inserted":
                 inserted += 1
             else:
-                updated += 1
+                if outcome == "updated":
+                    updated += 1
+                else:
+                    skipped += 1
             logger.info("%s: %s", outcome, rule_dict["id"])
 
         await session.commit()
 
     logger.info(
-        "Done. %d inserted, %d updated, %d total rules in corpus.",
+        "Done. %d inserted, %d updated, %d skipped, %d total rules in corpus.",
         inserted,
         updated,
+        skipped,
         len(COMPLIANCE_RULES_CORPUS),
     )
 

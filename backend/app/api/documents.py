@@ -349,11 +349,12 @@ async def get_analysis(
     if analysis is None:
         raise HTTPException(404, "No analysis found for this document")
 
+    doc = await db.scalar(select(Document).where(Document.id == document_id))
+
     if analysis.status == AnalysisStatus.pending:
         raise HTTPException(202, "Analysis is still processing")
 
     if analysis.status == AnalysisStatus.error:
-        doc = await db.scalar(select(Document).where(Document.id == document_id))
         error_type = "unsupported_for_ai"
         if doc and doc.ai_analysis and isinstance(doc.ai_analysis, dict):
             error_type = doc.ai_analysis.get("error_type", "unsupported_for_ai")
@@ -378,6 +379,8 @@ async def get_analysis(
     )
     flag_rows = flags_result.all()
 
+    stored_analysis = doc.ai_analysis if doc and isinstance(doc.ai_analysis, dict) else {}
+
     return {
         "summary": analysis.summary,
         "flags": [
@@ -389,7 +392,7 @@ async def get_analysis(
             }
             for f, rule_key in flag_rows
         ],
-        "precedents": [],
+        "precedents": stored_analysis.get("precedents", []),
     }
 
 

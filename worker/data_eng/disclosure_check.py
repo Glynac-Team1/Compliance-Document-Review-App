@@ -19,16 +19,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Rule
 from worker.data_eng.chunking import DocumentChunk
-from worker.data_eng.embeddings import document_chunk_embeddings
 
 logger = logging.getLogger(__name__)
 
 # Cosine DISTANCE threshold (0 = identical meaning, 2 = opposite meaning).
 # A chunk closer than this to a disclosure counts as containing it.
-# Starting value, calibrated by feel against bge-base-en-v1.5's typical
-# paraphrase-similarity range — NOT mathematically derived. Tune this
-# against real examples before trusting it; see test cases below for
-# the specific pairs it was checked against.
+# Starting value for the evaluation harness in
+# worker.data_eng.evaluate_disclosure_threshold. It is a configuration default,
+# not a statistically validated production threshold until labeled examples are
+# evaluated.
 DEFAULT_ABSENCE_THRESHOLD = 0.35
 
 REQUIRED_DISCLOSURE_TYPE = "REQUIRED_DISCLOSURE"  # must match rules_corpus.py category strings exactly
@@ -53,26 +52,30 @@ def cosine_distance(a, b) -> float:
 
 async def find_missing_disclosures(
     session: AsyncSession,
-    chunks: list[DocumentChunk],
+    chunk_embeddings: list[list[float]] | list[DocumentChunk],
     threshold: float = DEFAULT_ABSENCE_THRESHOLD,
 ) -> list[MissingDisclosure]:
+    """Accepts PRECOMPUTED chunk embeddings (see retrieve_rules_for_document
+    docstring — same reasoning: embed once, reuse across all three
+    retrieval jobs instead of re-deriving embeddings per job)."""
     stmt = select(Rule).where(Rule.rule_type == REQUIRED_DISCLOSURE_TYPE)
     disclosures = (await session.execute(stmt)).scalars().all()
     if not disclosures:
         return []
 
-    chunk_embeddings = document_chunk_embeddings(chunks) if chunks else []
+    embeddings = [
+        chunk.embedding if isinstance(chunk, DocumentChunk) else chunk
+        for chunk in chunk_embeddings
+    ]
+    if any(embedding is None for embedding in embeddings):
+        raise ValueError("Document chunks must be embedded before disclosure detection")
 
     missing: list[MissingDisclosure] = []
     for disclosure in disclosures:
-        if not chunk_embeddings:
-            # No document content at all — every required disclosure is
-            # trivially absent. Use the maximum possible distance (2.0)
-            # rather than skipping, so this is visible in results/logs
-            # as "genuinely absent," not silently omitted.
+        if not embeddings:
             closest = 2.0
         else:
-            closest = min(cosine_distance(list(disclosure.embedding), emb) for emb in chunk_embeddings)
+            closest = min(cosine_distance(list(disclosure.embedding), emb) for emb in embeddings)
 
         logger.debug("disclosure=%s closest_distance=%.3f threshold=%.3f", disclosure.rule_key, closest, threshold)
 

@@ -35,8 +35,8 @@ COPY --chown=appuser:appuser backend/app ./app
 COPY --chown=appuser:appuser backend/models ./models
 COPY --chown=appuser:appuser backend/alembic ./alembic
 COPY --chown=appuser:appuser backend/alembic.ini ./alembic.ini
-COPY --chown=appuser:appuser backend/entrypoint.sh ./entrypoint.sh
 COPY --chown=appuser:appuser worker ./worker
+COPY --chown=appuser:appuser worker/entrypoint.sh ./entrypoint.sh
 
 RUN chmod +x ./entrypoint.sh
 USER appuser
