@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
+from app.config import settings
 
 from app.database import get_db
 from models import User, Role
@@ -28,10 +29,14 @@ class AuthRequest(BaseModel):
     password: str
     role: Role = Role.advisor 
     name: str = "New User"
+    officer_invite_code: str | None = None
 
 @router.post("/signup")
 async def signup(req: AuthRequest, db: AsyncSession = Depends(get_db)):
     # Check if the user already exists in Postgres
+    if req.role == Role.officer:
+        if not req.officer_invite_code or req.officer_invite_code != settings.officer_signup_code:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or missing officer invite code")
     result = await db.execute(select(User).where(User.email == req.email))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")

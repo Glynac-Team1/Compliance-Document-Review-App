@@ -46,7 +46,8 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-compliance}:${POSTGRES_PASSWORD:-compliance}@postgres:5432/${POSTGRES_DB:-compliance_review}
       REDIS_URL: redis://redis:6379/0
-      SESSION_SECRET: ${SESSION_SECRET:-dev-secret-change-me}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set}
+      OFFICER_SIGNUP_CODE: ${OFFICER_SIGNUP_CODE:?OFFICER_SIGNUP_CODE must be set}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
     ports:
@@ -68,7 +69,8 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-compliance}:${POSTGRES_PASSWORD:-compliance}@postgres:5432/${POSTGRES_DB:-compliance_review}
       REDIS_URL: redis://redis:6379/0
-      SESSION_SECRET: ${SESSION_SECRET:-dev-secret-change-me}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set}
+      OFFICER_SIGNUP_CODE: ${OFFICER_SIGNUP_CODE:?OFFICER_SIGNUP_CODE must be set}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
     volumes:

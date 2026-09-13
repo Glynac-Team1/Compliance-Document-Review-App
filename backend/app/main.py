@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.documents import router as documents_router
 from app.api.roles import officer_router, advisor_router
 from app.api.auth import router as auth_router
+import logging
 
 from fastapi.responses import JSONResponse
 
@@ -18,17 +19,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+logger = logging.getLogger("compliance_review")
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Internal server error: {str(exc)}"},
+        content={"detail": "Internal server error"},
     )
 
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(documents_router, prefix="/documents", tags=["documents"])
 app.include_router(officer_router, prefix="/queue", tags=["officer"])
 app.include_router(advisor_router, prefix="/documents/mine", tags=["advisor"])
+
 
 
 @app.get("/health")
