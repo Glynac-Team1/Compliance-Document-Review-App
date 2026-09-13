@@ -12,7 +12,9 @@ from models import Document, AIAnalysis, Flag, AnalysisStatus, Severity, Rule, P
 from app.core.storage import s3_client
 from worker.ai.gemini_assist import GeminiAssistEngine
 from worker.ai.pii_masker import PIIMasker
+from worker.data_eng.disclosure_check import find_missing_disclosures
 from worker.data_eng.extractors import TextExtractor, ExtractionError
+from worker.data_eng.precedent_search import retrieve_precedents
 
 celery_app = Celery("compliance_review", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.task_default_queue = "document-analysis"
@@ -70,51 +72,77 @@ def analyze_document(document_id: str) -> dict:
                     )
                 await db.flush()
 
-                # 3. Semantic Rule Retrieval (RAG via pgvector)
-                # Retrieves compliance rules tailored to the document content.
-                # Gracefully falls back to None if local embedding inference is offline.
-                rules_context = None
+                # 3. Compute one local embedding batch and reuse it for every retrieval job.
+                # The same masked vectors drive rules, missing disclosures, and precedents.
+                rules_context = []
+                missing_disclosures = []
+                precedents = []
                 try:
                     from worker.data_eng.chunking import chunk_document
                     from worker.data_eng.embeddings import embed_document_chunks
                     from worker.data_eng.retrieval import retrieve_rules_for_document
 
                     chunks = embed_document_chunks(chunk_document(masked_text))
-                    retrieved_rules = await retrieve_rules_for_document(db, chunks)
-                    if retrieved_rules:
-                        rules_context = [
-                            {"id": r.rule_key, "category": r.rule_type, "text": r.text}
-                            for r in retrieved_rules
-                        ]
+                    chunk_embeddings = [chunk.embedding for chunk in chunks if chunk.embedding is not None]
+                    retrieved_rules = await retrieve_rules_for_document(db, chunk_embeddings)
+                    missing = await find_missing_disclosures(db, chunk_embeddings)
+                    retrieved_precedents = await retrieve_precedents(db, chunk_embeddings)
+
+                    rules_context = [
+                        {"id": rule.rule_key, "category": rule.rule_type, "text": rule.text}
+                        for rule in retrieved_rules
+                    ]
+                    missing_disclosures = [
+                        {
+                            "id": item.rule_key,
+                            "text": item.text,
+                            "closest_distance": item.closest_distance,
+                        }
+                        for item in missing
+                    ]
+                    precedents = [
+                        {
+                            "decision": item.decision,
+                            # Precedent comments are database text and may contain
+                            # client details from a real review; mask before Gemini.
+                            "comment": masker.mask(item.comment)[0],
+                            "distance": item.distance,
+                        }
+                        for item in retrieved_precedents
+                    ]
                 except Exception as retrieval_err:
-                    print(f"[WARN] Vector rule retrieval bypassed or unavailable: {retrieval_err}")
-                    rules_context = None
+                    print(f"[WARN] Vector retrieval bypassed or unavailable: {retrieval_err}")
 
                 # 4. Outbound LLM Generation
                 # Dispatches only sanitized text and retrieved rules to external AI providers.
                 ai_engine = GeminiAssistEngine()
-                analysis = ai_engine.analyze_document(masked_text, rules_context=rules_context)
+                analysis = ai_engine.analyze_masked_document(
+                    masked_text,
+                    pii_mapping,
+                    rules_context,
+                    missing_disclosures,
+                    precedents,
+                )
 
-                # 5. Entity Unmasking for Authorized Officer Display
-                # Re-inject original values into the summary and flag excerpts before persistence.
-                unmasked_summary = masker.unmask(analysis.get("summary", ""), pii_mapping)
-                analysis["summary"] = unmasked_summary
+                analysis["precedents"] = precedents
 
-                unmasked_flags = []
-                for flag in analysis.get("flags", []):
-                    unmasked_flags.append({
-                        "passage": masker.unmask(flag.get("passage", ""), pii_mapping),
-                        "matched_rule_id": flag.get("matched_rule_id"),
-                        "severity": flag.get("severity", "medium"),
-                        "explanation": masker.unmask(flag.get("explanation", ""), pii_mapping),
-                    })
-                analysis["flags"] = unmasked_flags
+                # Only persist flags grounded in the rules supplied to the model.
+                allowed_rule_ids = {
+                    item["id"] for item in rules_context
+                } | {
+                    item["id"] for item in missing_disclosures
+                }
+                analysis["flags"] = [
+                    flag for flag in analysis.get("flags", [])
+                    if flag.get("matched_rule_id") in allowed_rule_ids
+                ]
 
-                # Maintain legacy document column for backward compatibility
+                # 5. GeminiAssistEngine validates and unmaskes only after a valid response.
+                # Maintain the legacy document column for backward compatibility.
                 doc.ai_analysis = analysis
 
                 # Process and persist flags
-                raw_flags = unmasked_flags
+                raw_flags = analysis.get("flags", [])
                 rule_keys = [f.get("matched_rule_id") for f in raw_flags if f.get("matched_rule_id")]
 
                 rules_by_key = {}
@@ -176,9 +204,14 @@ def analyze_document(document_id: str) -> dict:
                         )
                     )
 
-                # Transition analysis status to ready
+                # A degraded result is useful for the JSON audit trail, but it is not
+                # a successful automated analysis and requires manual review.
                 ai_record.summary = analysis.get("summary")
-                ai_record.status = AnalysisStatus.ready
+                ai_record.model_name = analysis.get("model")
+                ai_record.error_message = (
+                    analysis.get("summary") if analysis.get("degraded") else None
+                )
+                ai_record.status = AnalysisStatus.error if analysis.get("degraded") else AnalysisStatus.ready
                 ai_record.generated_at = datetime.utcnow()
                 await db.commit()
 

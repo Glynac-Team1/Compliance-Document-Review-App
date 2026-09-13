@@ -5,15 +5,19 @@ structured Pydantic validation, missing-disclosure detection, and graceful degra
 """
 
 import json
+import logging
 import os
 import re
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from .pii_masker import PIIMasker
 from .rules_corpus import get_default_rules
 from .schemas import AIAnalysisResult, ComplianceFlag
+
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiAssistEngine:
@@ -55,7 +59,8 @@ class GeminiAssistEngine:
         provider: Optional[str] = None,
         groq_api_key: Optional[str] = None,
     ):
-        self.provider = (provider or os.environ.get("LLM_PROVIDER") or "gemini").lower()
+        configured_provider = (provider or os.environ.get("LLM_PROVIDER") or "gemini").strip().lower()
+        self.provider = configured_provider if configured_provider in {"gemini", "groq"} else "gemini"
         self.gemini_api_key = (
             api_key
             or os.environ.get("GEMINI_API_KEY")
@@ -66,6 +71,8 @@ class GeminiAssistEngine:
             or os.environ.get("GROQ_API_KEY")
             or (self.gemini_api_key if self.provider == "groq" else None)
         )
+        # Keep this alias for callers of the earlier masked-pipeline API.
+        self.api_key = self.groq_api_key if self.provider == "groq" else self.gemini_api_key
         self.masker = PIIMasker()
 
     def get_outbound_payload(
@@ -77,17 +84,34 @@ class GeminiAssistEngine:
             payload: The sanitized JSON dictionary sent to the API.
             mapping: The server-side mapping of placeholders to original PII (retained locally).
         """
+        if not isinstance(document_text, str):
+            raise TypeError("document_text must be a string")
         masked_text, mapping = self.masker.mask(document_text)
-        rules = rules_context or get_default_rules()
-        rules_str = json.dumps(rules, indent=2)
+        return self._build_payload(masked_text, rules_context), mapping
 
-        user_prompt = (
-            f"=== COMPLIANCE RULES CORPUS ===\n{rules_str}\n\n"
-            f"=== SUBMITTED DOCUMENT TEXT (PII SANITIZED) ===\n{masked_text}"
-        )
+    def _build_payload(
+        self,
+        masked_text: str,
+        rules_context: Optional[Sequence[Mapping[str, Any]]] = None,
+        missing_disclosures: Optional[Sequence[Any]] = None,
+        precedents: Optional[Sequence[Any]] = None,
+        provider: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Build a provider-specific request from text already inside the privacy wall."""
+        rules = list(rules_context) if rules_context else get_default_rules()
+        sections = [
+            f"=== COMPLIANCE RULES CORPUS ===\n{json.dumps(rules, indent=2)}",
+        ]
+        if missing_disclosures:
+            sections.append(f"=== DISCLOSURES IDENTIFIED AS MISSING ===\n{json.dumps(list(missing_disclosures))}")
+        if precedents:
+            sections.append(f"=== SIMILAR PAST DECISIONS (REFERENCE ONLY) ===\n{json.dumps(list(precedents))}")
+        sections.append(f"=== SUBMITTED DOCUMENT TEXT (PII SANITIZED) ===\n{masked_text}")
+        user_prompt = "\n\n".join(sections)
+        selected_provider = provider or self.provider
 
-        if self.provider == "groq":
-            payload = {
+        if selected_provider == "groq":
+            return {
                 "model": os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
                 "messages": [
                     {"role": "system", "content": self.SYSTEM_INSTRUCTION},
@@ -96,28 +120,25 @@ class GeminiAssistEngine:
                 "response_format": {"type": "json_object"},
                 "temperature": 0.1,
             }
-        else:
-            payload = {
-                "contents": [{"parts": [{"text": user_prompt}]}],
-                "systemInstruction": {"parts": [{"text": self.SYSTEM_INSTRUCTION}]},
-                "generationConfig": {
-                    "responseMimeType": "application/json",
-                    "temperature": 0.1,
-                },
-            }
-
-        return payload, mapping
+        return {
+            "contents": [{"parts": [{"text": user_prompt}]}],
+            "systemInstruction": {"parts": [{"text": self.SYSTEM_INSTRUCTION}]},
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "temperature": 0.1,
+            },
+        }
 
     def _call_gemini_api(self, payload: Dict[str, Any]) -> Tuple[str, str]:
         """Calls Google AI Studio Gemini API with model fallback."""
         if not self.gemini_api_key:
             raise ValueError("GEMINI_API_KEY / LLM_API_KEY is missing.")
 
-        candidate_models = [
+        candidate_models = list(dict.fromkeys([
             os.environ.get("GEMINI_MODEL", "gemini-1.5-flash"),
             "gemini-2.0-flash",
             "gemini-2.5-flash",
-        ]
+        ]))
 
         last_error = None
         for model in candidate_models:
@@ -130,17 +151,16 @@ class GeminiAssistEngine:
                 )
                 with urllib.request.urlopen(req, timeout=20) as response:
                     res_body = json.loads(response.read().decode("utf-8"))
-                    raw_text = res_body["candidates"][0]["content"]["parts"][0]["text"]
-                    return raw_text, model
+                    return self._extract_gemini_text(res_body), model
             except urllib.error.HTTPError as e:
                 last_error = e
                 # If 404 (model not found), try next model in candidate list
                 if e.code == 404:
                     continue
                 raise
-            except Exception as e:
-                last_error = e
-                raise
+            except (json.JSONDecodeError, KeyError, IndexError, TypeError) as error:
+                last_error = ValueError("Gemini returned an invalid response shape")
+                raise last_error from error
 
         raise last_error or RuntimeError("All Gemini model endpoints failed.")
 
@@ -161,17 +181,144 @@ class GeminiAssistEngine:
         )
         with urllib.request.urlopen(req, timeout=20) as response:
             res_body = json.loads(response.read().decode("utf-8"))
-            raw_text = res_body["choices"][0]["message"]["content"]
-            return raw_text, payload.get("model", "llama-3.3-70b-versatile")
+            return self._extract_groq_text(res_body), payload.get("model", "llama-3.3-70b-versatile")
+
+    @staticmethod
+    def _extract_gemini_text(response: Mapping[str, Any]) -> str:
+        candidates = response.get("candidates")
+        if not isinstance(candidates, list) or not candidates:
+            raise ValueError("Gemini response contained no candidates")
+        parts = candidates[0].get("content", {}).get("parts")
+        if not isinstance(parts, list):
+            raise ValueError("Gemini response contained no content parts")
+        text = "".join(part.get("text", "") for part in parts if isinstance(part, dict))
+        if not text.strip():
+            raise ValueError("Gemini response contained no text")
+        return text
+
+    @staticmethod
+    def _extract_groq_text(response: Mapping[str, Any]) -> str:
+        choices = response.get("choices")
+        if not isinstance(choices, list) or not choices:
+            raise ValueError("Groq response contained no choices")
+        content = choices[0].get("message", {}).get("content")
+        if isinstance(content, str) and content.strip():
+            return content
+        if isinstance(content, list):
+            text = "".join(
+                part.get("text", "") for part in content if isinstance(part, dict)
+            )
+            if text.strip():
+                return text
+        raise ValueError("Groq response contained no text")
 
     @staticmethod
     def _clean_json_string(text: str) -> str:
         """Strips markdown code fences and extraneous wrapping from LLM output."""
+        if not isinstance(text, str):
+            raise TypeError("LLM response must be text")
         cleaned = text.strip()
         if cleaned.startswith("```"):
-            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
             cleaned = re.sub(r"\s*```$", "", cleaned)
-        return cleaned.strip()
+        cleaned = cleaned.strip()
+        if not cleaned.startswith("{"):
+            start = cleaned.find("{")
+            if start >= 0:
+                cleaned = cleaned[start:]
+        if not cleaned.endswith("}"):
+            end = cleaned.rfind("}")
+            if end >= 0:
+                cleaned = cleaned[: end + 1]
+        return cleaned
+
+    @classmethod
+    def _validate_response(
+        cls, raw_response_text: str, provider: str, model: Optional[str]
+    ) -> AIAnalysisResult:
+        parsed_data = json.loads(cls._clean_json_string(raw_response_text))
+        if not isinstance(parsed_data, dict):
+            raise ValueError("LLM response must be a JSON object")
+        raw_flags = parsed_data.get("flags", [])
+        if not isinstance(raw_flags, list):
+            raise ValueError("LLM response field 'flags' must be a list")
+        validated_flags = [ComplianceFlag.model_validate(flag) for flag in raw_flags]
+        return AIAnalysisResult(
+            summary=parsed_data.get("summary", ""),
+            flags=validated_flags,
+            degraded=False,
+            provider=provider,
+            model=model,
+        )
+
+    def _fallback_response(self) -> Dict[str, Any]:
+        return {
+            "summary": "AI Assist unavailable (API Key missing, rate-limited, or service degraded). Officer manual review required.",
+            "flags": [],
+            "degraded": True,
+            "provider": "degraded_fallback",
+            "model": None,
+        }
+
+    def _call_provider(self, provider: str, payload: Dict[str, Any]) -> Tuple[str, str]:
+        if provider == "groq":
+            return self._call_groq_api(payload)
+        return self._call_gemini_api(payload)
+
+    def _analyze_masked(
+        self,
+        masked_text: str,
+        mapping: Mapping[str, str],
+        rules_context: Optional[Sequence[Mapping[str, Any]]] = None,
+        missing_disclosures: Optional[Sequence[Any]] = None,
+        precedents: Optional[Sequence[Any]] = None,
+    ) -> Dict[str, Any]:
+        if not isinstance(masked_text, str):
+            raise TypeError("masked_text must be a string")
+        fallback = self._fallback_response()
+        if not masked_text.strip():
+            logger.warning("Empty document text; returning degraded analysis")
+            return fallback
+        if not isinstance(mapping, Mapping):
+            raise TypeError("mapping must be a mapping of placeholders to original values")
+        if not (self.gemini_api_key or self.groq_api_key):
+            logger.warning("No LLM API key configured; returning degraded analysis")
+            return fallback
+
+        providers = [self.provider]
+        secondary = "groq" if self.provider == "gemini" else "gemini"
+        secondary_key = self.groq_api_key if secondary == "groq" else self.gemini_api_key
+        if secondary_key:
+            providers.append(secondary)
+
+        for index, provider in enumerate(providers):
+            try:
+                payload = self._build_payload(
+                    masked_text, rules_context, missing_disclosures, precedents, provider
+                )
+                raw_text, model = self._call_provider(provider, payload)
+                validated = self._validate_response(raw_text, provider, model)
+                return {
+                    "summary": self.masker.unmask(validated.summary, dict(mapping)),
+                    "flags": [
+                        {
+                            "passage": self.masker.unmask(flag.passage, dict(mapping)),
+                            "matched_rule_id": flag.matched_rule_id,
+                            "severity": flag.severity.value,
+                            "explanation": self.masker.unmask(flag.explanation, dict(mapping)),
+                        }
+                        for flag in validated.flags
+                    ],
+                    "degraded": False,
+                    "provider": validated.provider,
+                    "model": validated.model,
+                }
+            except Exception as error:
+                if index == 0 and len(providers) > 1:
+                    logger.warning("Primary LLM provider %s failed; trying %s: %s", provider, secondary, error)
+                else:
+                    logger.error("LLM analysis failed for provider %s: %s", provider, error)
+        return fallback
 
     def analyze_document(
         self, document_text: str, rules_context: Optional[List[Dict[str, str]]] = None
@@ -184,87 +331,34 @@ class GeminiAssistEngine:
         4. Restores/unmasks original client entities into the output for officer review.
         5. Degrades gracefully if offline, unconfigured, or rate-limited.
         """
-        payload, mapping = self.get_outbound_payload(document_text, rules_context)
+        if not isinstance(document_text, str):
+            raise TypeError("document_text must be a string")
+        masked_text, mapping = self.masker.mask(document_text)
+        return self._analyze_masked(masked_text, mapping, rules_context)
 
-        fallback_response: Dict[str, Any] = {
-            "summary": "AI Assist unavailable (API Key missing, rate-limited, or service degraded). Officer manual review required.",
-            "flags": [],
-            "degraded": True,
-            "provider": "degraded_fallback",
-            "model": None,
-        }
+    def build_payload_from_masked(
+        self,
+        masked_text: str,
+        rules_context: Optional[List[Dict[str, str]]] = None,
+        missing_disclosures: Optional[List[Any]] = None,
+        precedents: Optional[List[Any]] = None,
+    ) -> Dict[str, Any]:
+        if not isinstance(masked_text, str):
+            raise TypeError("masked_text must be a string")
+        return self._build_payload(masked_text, rules_context, missing_disclosures, precedents)
 
-        # Check credentials
-        has_key = bool(self.gemini_api_key or self.groq_api_key)
-        if not has_key:
-            print("[WARN] No LLM API key configured. Returning graceful fallback response.")
-            return fallback_response
-
-        raw_response_text = None
-        used_provider = self.provider
-        used_model = None
-
-        # Attempt primary provider
-        try:
-            if self.provider == "groq":
-                raw_response_text, used_model = self._call_groq_api(payload)
-            else:
-                raw_response_text, used_model = self._call_gemini_api(payload)
-        except Exception as primary_err:
-            print(f"[WARN] Primary LLM ({self.provider}) call failed: {primary_err}")
-            # Try secondary provider fallback if credentials exist
-            try:
-                if self.provider == "gemini" and self.groq_api_key:
-                    print("[INFO] Attempting failover to Groq...")
-                    self.provider = "groq"
-                    groq_payload, _ = self.get_outbound_payload(document_text, rules_context)
-                    raw_response_text, used_model = self._call_groq_api(groq_payload)
-                    used_provider = "groq"
-                elif self.provider == "groq" and self.gemini_api_key:
-                    print("[INFO] Attempting failover to Gemini...")
-                    self.provider = "gemini"
-                    gemini_payload, _ = self.get_outbound_payload(document_text, rules_context)
-                    raw_response_text, used_model = self._call_gemini_api(gemini_payload)
-                    used_provider = "gemini"
-                else:
-                    return fallback_response
-            except Exception as secondary_err:
-                print(f"[ERROR] Failover LLM call also failed: {secondary_err}")
-                return fallback_response
-
-        # Parse & validate with Pydantic
-        try:
-            cleaned_json = self._clean_json_string(raw_response_text)
-            parsed_data = json.loads(cleaned_json)
-            validated = AIAnalysisResult(
-                summary=parsed_data.get("summary", ""),
-                flags=[
-                    ComplianceFlag.model_validate(f)
-                    for f in parsed_data.get("flags", [])
-                ],
-                degraded=False,
-                provider=used_provider,
-                model=used_model,
-            )
-        except Exception as parse_err:
-            print(f"[ERROR] Failed to parse or validate LLM JSON: {parse_err}. Content was:\n{raw_response_text}")
-            return fallback_response
-
-        # Unmask placeholders back into original entity values for officer display
-        unmasked_summary = self.masker.unmask(validated.summary, mapping)
-        unmasked_flags: List[Dict[str, Any]] = []
-        for flag in validated.flags:
-            unmasked_flags.append({
-                "passage": self.masker.unmask(flag.passage, mapping),
-                "matched_rule_id": flag.matched_rule_id,
-                "severity": flag.severity.value,
-                "explanation": self.masker.unmask(flag.explanation, mapping),
-            })
-
-        return {
-            "summary": unmasked_summary,
-            "flags": unmasked_flags,
-            "degraded": False,
-            "provider": validated.provider,
-            "model": validated.model,
-        }
+    def analyze_masked_document(
+        self,
+        masked_text: str,
+        mapping: Mapping[str, str],
+        rules_context: Optional[List[Dict[str, str]]] = None,
+        missing_disclosures: Optional[List[Any]] = None,
+        precedents: Optional[List[Any]] = None,
+    ) -> Dict[str, Any]:
+        return self._analyze_masked(
+            masked_text,
+            mapping,
+            rules_context,
+            missing_disclosures,
+            precedents,
+        )

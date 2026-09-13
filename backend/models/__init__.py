@@ -39,6 +39,7 @@ class Document(Base):
     original_filename: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[DocumentStatus] = mapped_column(Enum(DocumentStatus), default=DocumentStatus.pending)
     locked_by_officer_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     file_reference: Mapped[str] = mapped_column(String, nullable=False)
     file_type: Mapped[str] = mapped_column(String, nullable=False)
     previous_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
@@ -113,9 +114,10 @@ class Severity(str, enum.Enum):
 class AuditAction(str, enum.Enum):
     submitted = "submitted"
     viewed = "viewed"
-    claimed="claimed"
+    claimed = "claimed"
     decided = "decided"
     resubmitted = "resubmitted"
+
 
 
 class AIAnalysis(Base):
@@ -124,7 +126,9 @@ class AIAnalysis(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"), unique=True, nullable=False)
     summary: Mapped[str | None] = mapped_column(String, nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String,nullable=True)
     status: Mapped[AnalysisStatus] = mapped_column(Enum(AnalysisStatus), default=AnalysisStatus.pending, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(String, nullable=True)
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 

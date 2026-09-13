@@ -3,42 +3,59 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, FileText, Filter, Search, X, Upload, RefreshCw, Loader2, History } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
+import { useToast } from '@/components/Toast'
+import type { DocumentItem, DocumentThread, DocumentThreadVersion } from '@/types/document'
 
-const fallbackSubmissions = [
-  { name: 'Q3 Marketing Brochure', date: 'Oct 24, 2024', type: 'PDF', status: 'Approved' },
-  { name: 'Client Risk Assessment', date: 'Oct 22, 2024', type: 'DOCX', status: 'Pending' },
-  { name: 'Investment Policy Statement', date: 'Oct 18, 2024', type: 'PDF', status: 'Needs Revision' },
-  { name: 'Annual Financial Review', date: 'Oct 12, 2024', type: 'XLSX', status: 'Approved' },
-  { name: 'Client Onboarding Form', date: 'Oct 08, 2024', type: 'DOCX', status: 'Rejected' },
-]
 
 function StatusBadge({ status }: { status: string }) {
   const normalized = (status || '').toLowerCase()
-  const styles =
-    normalized === 'approved'
-      ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-      : normalized === 'pending' || normalized === 'in_review'
-      ? 'bg-amber-50 text-amber-700 ring-amber-200'
-      : 'bg-red-50 text-red-700 ring-red-200'
+  let styles = 'bg-amber-50 text-amber-700 ring-amber-200'
+  let label = status ? status.replace('_', ' ') : 'Pending'
+
+  if (normalized === 'approved') {
+    styles = 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+    label = 'Approved'
+  } else if (normalized === 'rejected') {
+    styles = 'bg-rose-50 text-rose-700 ring-rose-200'
+    label = 'Rejected'
+  } else if (normalized === 'needs_revision') {
+    styles = 'bg-sky-50 text-sky-700 ring-sky-200'
+    label = 'Needs Revision'
+  } else if (normalized === 'in_review') {
+    styles = 'bg-blue-50 text-blue-700 ring-blue-200'
+    label = 'In Review'
+  } else if (normalized === 'pending') {
+    styles = 'bg-amber-50 text-amber-700 ring-amber-200'
+    label = 'Pending'
+  }
 
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${styles}`}>
       <span className="size-1.5 rounded-full bg-current" />
-      {status}
+      {label}
     </span>
   )
 }
 
-export default function Submissions({ onUpload }: { onUpload: () => void }) {
-  const [documents, setDocuments] = useState<any[]>([])
+export default function Submissions({
+  onUpload,
+  refreshTrigger,
+  selectedDocId,
+}: {
+  onUpload: () => void
+  refreshTrigger?: number
+  selectedDocId?: string | null
+}) {
+  const { toast } = useToast()
+  const [documents, setDocuments] = useState<DocumentItem[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [statusFilter, setStatusFilter] = useState('All')
   const itemsPerPage = 5
 
   const [isLoading, setIsLoading] = useState(true)
-  const [threadData, setThreadData] = useState<any | null>(null)
-  const [isLoadingThread, setIsLoadingThread] = useState(false)
+  const [threadData, setThreadData] = useState<DocumentThread | null>(null)
+  const [_isLoadingThread, setIsLoadingThread] = useState(false)
   const [isResubmitting, setIsResubmitting] = useState(false)
   const resubmitInputRef = useRef<HTMLInputElement>(null)
 
@@ -66,13 +83,39 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
 
   useEffect(() => {
     fetchDocuments()
-  }, [])
+  }, [refreshTrigger])
 
   useEffect(() => {
     setCurrentPage(1)
   }, [searchQuery, statusFilter])
 
-  const [selectedDocument, setSelectedDocument] = useState<any | null>(null)
+  const [selectedDocument, setSelectedDocument] = useState<DocumentItem | null>(null)
+
+  useEffect(() => {
+    if (selectedDocId && documents.length > 0) {
+      const target = documents.find((d) => d.id === selectedDocId)
+      if (target) {
+        setSelectedDocument(target)
+      } else {
+        const fetchTarget = async () => {
+          try {
+            const token = localStorage.getItem('auth_token')
+            if (!token) return
+            const res = await fetch(`${getApiBaseUrl()}/documents/${selectedDocId}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+            if (res.ok) {
+              const data = await res.json()
+              setSelectedDocument(data)
+            }
+          } catch (e) {
+            console.error('Failed to fetch selected document', e)
+          }
+        }
+        fetchTarget()
+      }
+    }
+  }, [selectedDocId, documents])
 
   useEffect(() => {
     if (!selectedDocument?.id) {
@@ -86,7 +129,7 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
         const token = localStorage.getItem('auth_token')
         if (!token) return
         const res = await fetch(`${getApiBaseUrl()}/documents/${selectedDocument.id}/thread`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         })
         if (res.ok) {
           const data = await res.json()
@@ -100,7 +143,7 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
     }
 
     fetchThread()
-  }, [selectedDocument])
+  }, [selectedDocument, refreshTrigger])
 
   const handleResubmit = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -114,7 +157,7 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
     try {
       const token = localStorage.getItem('auth_token')
       if (!token) {
-        alert('Authentication required')
+        toast.error('Authentication Required', 'Please log in to submit document revisions.')
         return
       }
       const res = await fetch(`${getApiBaseUrl()}/documents`, {
@@ -126,19 +169,23 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
         const err = await res.json()
         throw new Error(err.detail || 'Resubmission failed')
       }
-      alert('Revision submitted successfully! It is now pending compliance review.')
+      toast.success(
+        'Revision Submitted',
+        'Your document revision was submitted and is now pending compliance review.'
+      )
       await fetchDocuments()
       setSelectedDocument(null)
-    } catch (err: any) {
-      alert('Resubmission error: ' + err.message)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown resubmission error occurred'
+      toast.error('Resubmission Failed', message)
     } finally {
       setIsResubmitting(false)
       if (resubmitInputRef.current) resubmitInputRef.current.value = ''
     }
   }
 
-    //  master list (either from DB or fallback)
-  const baseList = documents.length > 0 ? documents : fallbackSubmissions
+    // master list from DB
+  const baseList = documents
   
   // filtered list based on the search bar
   const displayList = baseList.filter((doc) => {
@@ -195,8 +242,11 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
               </div>
               <p className="mt-3 text-sm leading-6 text-muted-foreground">
                 {selectedDocument.officer_comment ||
-                  'Document received and queued for compliance review.'}
+                  (selectedDocument.status?.toLowerCase() === 'in_review'
+                    ? 'Currently being reviewed by a compliance officer.'
+                    : 'Document received and queued for compliance review.')}
               </p>
+
             </div>
 
             {threadData && threadData.versions?.length > 1 && (
@@ -206,7 +256,7 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
                   <span>Revision Thread ({threadData.total_versions} versions)</span>
                 </div>
                 <div className="max-h-36 space-y-2 overflow-y-auto pr-1">
-                  {threadData.versions.map((ver: any) => (
+                  {threadData.versions.map((ver: DocumentThreadVersion) => (
                     <div
                       key={ver.document_id}
                       className={`flex items-center justify-between rounded-md p-2 text-xs transition ${
@@ -317,6 +367,7 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
   >
     <option value="All">All statuses</option>
     <option value="pending">Pending</option>
+    <option value="in_review">In Review</option>
     <option value="approved">Approved</option>
     <option value="needs_revision">Needs Revision</option>
     <option value="rejected">Rejected</option>
@@ -343,8 +394,36 @@ export default function Submissions({ onUpload }: { onUpload: () => void }) {
                 <tbody className="divide-y divide-border">
                   {isLoading && documents.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-5 py-6 text-center text-muted-foreground">
-                        Loading documents...
+                      <td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <Loader2 className="size-5 animate-spin text-primary" />
+                          <p className="text-sm">Loading your submissions...</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : displayList.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-5 py-12 text-center text-muted-foreground">
+                        <div className="mx-auto flex max-w-sm flex-col items-center justify-center text-center">
+                          <div className="mb-3 flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+                            <FileText className="size-5" />
+                          </div>
+                          <p className="text-sm font-semibold text-foreground">No submissions found</p>
+                          <p className="mt-1 mb-4 text-xs text-muted-foreground">
+                            {searchQuery || statusFilter !== 'All'
+                              ? 'No documents match your filter criteria.'
+                              : 'You have not submitted any documents for compliance review yet.'}
+                          </p>
+                          {!searchQuery && statusFilter === 'All' && (
+                            <button
+                              onClick={onUpload}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
+                            >
+                              <Upload className="size-3.5" />
+                              Upload your first document
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ) : (

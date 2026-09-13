@@ -4,36 +4,26 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Submissions from './Submissions'
 import UserNav from '@/components/UserNav'
+import NotificationPopover from '@/components/NotificationPopover'
+import { useLiveSync } from '@/lib/useLiveSync'
 import { getApiBaseUrl } from '@/lib/api'
+import { useToast } from '@/components/Toast'
 import {
   ArrowUpRight,
-  Bell,
   BookOpen,
   CheckCircle2,
-  ChevronDown,
-  ChevronLeft,
   ChevronRight,
-  Clock3,
   FileCheck2,
   FileText,
   Filter,
   HelpCircle,
-  LifeBuoy,
   Mail,
   MessageSquare,
   Plus,
   Search,
   ShieldCheck,
-  Upload,
   X,
 } from 'lucide-react'
-
-const notifications = [
-  { title: "Your document 'Q3 Marketing Brochure' was Approved by Compliance", time: '2 hours ago', tone: 'success' },
-  { title: "Action required: update 'Investment Policy Statement'", time: 'Yesterday', tone: 'warning' },
-  { title: "Your document 'Client Risk Assessment' is under review", time: 'Oct 22, 2024', tone: 'info' },
-  { title: "Your document 'Annual Financial Review' was Approved", time: 'Oct 12, 2024', tone: 'success' },
-]
 
 const resources = [
   {
@@ -243,7 +233,7 @@ interface AdvisorWorkspaceProps {
   slug?: string
 }
 
-export default function AdvisorWorkspace({ slug }: AdvisorWorkspaceProps) {
+export default function AdvisorWorkspace({ slug: _slug }: AdvisorWorkspaceProps) {
   const router = useRouter()
 
   useEffect(() => {
@@ -260,10 +250,23 @@ export default function AdvisorWorkspace({ slug }: AdvisorWorkspaceProps) {
     }
   }, [router])
 
-  const [panelOpen, setPanelOpen] = useState(true)
+  const { toast } = useToast()
   const [screen, setScreen] = useState('Submissions')
+  const [syncTrigger, setSyncTrigger] = useState(0)
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const [uploaded, setUploaded] = useState(false)
+
+  const {
+    notifications,
+    unreadCount,
+    markAsRead,
+    markAllAsRead,
+  } = useLiveSync({
+    onSync: (_event, _docId) => {
+      setSyncTrigger((prev) => prev + 1)
+    },
+  })
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -275,7 +278,7 @@ export default function AdvisorWorkspace({ slug }: AdvisorWorkspaceProps) {
     try {
       const token = localStorage.getItem('auth_token')
       if (!token) {
-        alert('Security error: No authentication token found. Please log in again.')
+        toast.error('Authentication Required', 'No authentication token found. Please log in again.')
         return
       }
 
@@ -293,12 +296,20 @@ export default function AdvisorWorkspace({ slug }: AdvisorWorkspaceProps) {
       }
 
       const data = await response.json()
-      console.log('Backend Response:', data)
 
+      toast.success(
+        'Document Submitted',
+        `${data.filename || file.name} has been queued for compliance review.`
+      )
+
+      setSyncTrigger((prev) => prev + 1)
       setUploaded(true)
       setTimeout(() => setUploaded(false), 3000)
-    } catch (error: any) {
-      alert('Upload failed: ' + error.message)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown upload error occurred'
+      toast.error('Upload Failed', message)
+    } finally {
+      if (fileInput.current) fileInput.current.value = ''
     }
   }
 
@@ -333,15 +344,16 @@ export default function AdvisorWorkspace({ slug }: AdvisorWorkspaceProps) {
           </div>
 
           <div className="flex items-center gap-5">
-            <button
-              aria-label={panelOpen ? 'Collapse notifications' : 'Expand notifications'}
-              aria-expanded={panelOpen}
-              onClick={() => setPanelOpen(!panelOpen)}
-              className="relative rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-primary"
-            >
-              <Bell className="size-5" />
-              <span className="absolute right-1 top-1 size-2.5 rounded-full bg-red-500 ring-2 ring-card" />
-            </button>
+            <NotificationPopover
+              notifications={notifications}
+              unreadCount={unreadCount}
+              onMarkRead={markAsRead}
+              onMarkAllRead={markAllAsRead}
+              onSelectDocument={(docId) => {
+                setScreen('Submissions')
+                setSelectedDocId(docId)
+              }}
+            />
             <div className="h-7 w-px bg-border" />
             <UserNav variant="header" />
           </div>
@@ -349,52 +361,17 @@ export default function AdvisorWorkspace({ slug }: AdvisorWorkspaceProps) {
       </header>
 
       <div className="mx-auto flex max-w-[1440px]">
-        {screen === 'Submissions' && <Submissions onUpload={() => fileInput.current?.click()} />}
+        {screen === 'Submissions' && (
+          <Submissions
+            onUpload={() => fileInput.current?.click()}
+            refreshTrigger={syncTrigger}
+            selectedDocId={selectedDocId}
+          />
+        )}
         {screen === 'Resources' && <Resources />}
         {screen === 'Support' && <Support />}
 
         <input ref={fileInput} className="hidden" type="file" onChange={handleFileUpload} />
-
-        {panelOpen && (
-          <aside className="hidden w-[340px] shrink-0 border-l border-slate-300 bg-card text-slate-900 lg:block" aria-label="Notifications">
-            <div className="flex items-center justify-between border-b border-slate-300 px-5 py-5">
-              <h2 className="text-base font-bold">Notifications</h2>
-              <button
-                aria-label="Collapse notifications"
-                onClick={() => setPanelOpen(false)}
-                className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-primary"
-              >
-                <ChevronRight className="size-4" />
-              </button>
-            </div>
-
-            <div className="p-5">
-              <div className="mb-5 flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-600">Recent updates</span>
-                <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-bold text-primary-foreground">3 new</span>
-              </div>
-              <div className="space-y-3">
-                {notifications.map((note, index) => (
-                  <div className="relative flex gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 shadow-sm" key={note.title}>
-                    <span
-                      className={`mt-1.5 size-2 shrink-0 rounded-full ${
-                        note.tone === 'success' ? 'bg-emerald-500' : note.tone === 'warning' ? 'bg-amber-500' : 'bg-blue-500'
-                      }`}
-                    />
-                    <div>
-                      <p className="text-sm leading-5 text-slate-800">{note.title}</p>
-                      <p className="mt-1.5 text-xs text-slate-600">{note.time}</p>
-                    </div>
-                    {index < 3 && <span className="absolute right-2 top-4 size-1.5 rounded-full bg-primary" />}
-                  </div>
-                ))}
-              </div>
-              <button className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">
-                View all notifications <ChevronRight className="size-3.5" />
-              </button>
-            </div>
-          </aside>
-        )}
       </div>
 
       {uploaded && (

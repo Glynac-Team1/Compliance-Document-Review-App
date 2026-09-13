@@ -1,4 +1,7 @@
-# sentence-transformers==3.1.1
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1+cpu
+sentence-transformers==3.1.1
 pdfplumber==0.11.4
 openpyxl==3.1.5
 fpdf2==2.7.9
+ 

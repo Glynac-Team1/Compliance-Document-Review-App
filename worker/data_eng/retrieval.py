@@ -1,7 +1,7 @@
 """
-Rule retrieval: given a submitted document's chunks, find the
+Rule retrieval: given a submitted document's chunk embeddings, find the
 compliance rules that are actually semantically relevant — replacing
-gemini_assist.py's current "stuff all 14 rules into every prompt"
+gemini_assist.py's original "stuff all rules into every prompt"
 approach with retrieve-then-generate (RAG).
 """
 from dataclasses import dataclass
@@ -10,8 +10,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Rule
-from worker.data_eng.chunking import DocumentChunk
-from worker.data_eng.embeddings import document_chunk_embeddings
 
 
 @dataclass
@@ -25,9 +23,6 @@ class RetrievedRule:
 async def _top_k_rules_for_embedding(
     session: AsyncSession, embedding: list[float], top_k: int
 ) -> list[RetrievedRule]:
-    """One similarity query against the corpus built in Stage 1.
-    ORDER BY ascending distance — the closest (most relevant) rule
-    comes first, since lower distance means more similar meaning."""
     stmt = (
         select(Rule, Rule.embedding.cosine_distance(embedding).label("distance"))
         .order_by(Rule.embedding.cosine_distance(embedding))
@@ -42,22 +37,20 @@ async def _top_k_rules_for_embedding(
 
 async def retrieve_rules_for_document(
     session: AsyncSession,
-    chunks: list[DocumentChunk],
+    chunk_embeddings: list[list[float]],
     top_k_per_chunk: int = 3,
     max_total_rules: int = 8,
 ) -> list[RetrievedRule]:
-    """Retrieves top-k rules PER prepared chunk,
-    then merges across chunks: a rule relevant to multiple chunks is
-    kept once, at its best (lowest) distance — capping the final list
-    at max_total_rules keeps the RAG prompt small regardless of
-    document length."""
-    if not chunks:
+    """Accepts PRECOMPUTED chunk embeddings (caller embeds once and
+    reuses across rule retrieval, disclosure checking, and precedent
+    search — see worker/ai/pipeline.py). Retrieves top-k rules per
+    chunk embedding, merges across chunks keeping each rule's
+    best (lowest) distance, caps the total for prompt size."""
+    if not chunk_embeddings:
         return []
 
-    embeddings = document_chunk_embeddings(chunks)
-
     best_by_rule_key: dict[str, RetrievedRule] = {}
-    for embedding in embeddings:
+    for embedding in chunk_embeddings:
         for retrieved in await _top_k_rules_for_embedding(session, embedding, top_k_per_chunk):
             existing = best_by_rule_key.get(retrieved.rule_key)
             if existing is None or retrieved.distance < existing.distance:
