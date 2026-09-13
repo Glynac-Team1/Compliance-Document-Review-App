@@ -417,6 +417,9 @@ async def execute_officer_decision(
         )
 
 
+    if doc.status in (DocumentStatus.approved, DocumentStatus.rejected):
+        raise HTTPException(409, 'Document is already ' + doc.status.value + ' and cannot be decided again')
+
     status_map = {
         Decision.approve: DocumentStatus.approved,
         Decision.reject: DocumentStatus.rejected,
