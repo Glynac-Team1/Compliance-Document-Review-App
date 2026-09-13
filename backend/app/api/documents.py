@@ -600,6 +600,9 @@ async def get_document_details(
     if caller_role == Role.advisor.value and target_doc.advisor_id != caller_id:
         raise HTTPException(403, "Access denied")
 
+    db.add(AuditEvent(actor_id=caller_id, document_id=target_doc.id, action=AuditAction.viewed))
+    await db.commit()
+
     adv_res = await db.execute(select(User).where(User.id == target_doc.advisor_id))
     advisor = adv_res.scalar_one_or_none()
     advisor_name = advisor.name if advisor else "Advisor"
@@ -646,3 +649,24 @@ async def get_document_details(
         "is_locked_by_me": is_locked_by_me,
         "is_locked_by_other": is_locked_by_other,
     }
+
+@router.get('/{document_id}/audit-log')
+async def get_audit_log(
+    document_id: uuid.UUID,
+    user_token: dict = Depends(require_any_role(Role.advisor, Role.officer)),
+    db: AsyncSession = Depends(get_db),
+):
+    doc = await db.scalar(select(Document).where(Document.id == document_id))
+    if doc is None:
+        raise HTTPException(404, 'Document not found')
+    caller_role = user_token.get('role')
+    caller_id = uuid.UUID(user_token['sub']) if isinstance(user_token['sub'], str) else user_token['sub']
+    if caller_role == Role.advisor.value and doc.advisor_id != caller_id:
+        raise HTTPException(403, 'Access denied')
+    events_result = await db.execute(select(AuditEvent).where(AuditEvent.document_id == document_id).order_by(AuditEvent.timestamp.asc()))
+    events = events_result.scalars().all()
+    entries = []
+    for e in events:
+        actor = await db.scalar(select(User).where(User.id == e.actor_id))
+        entries.append({'action': e.action.value, 'actor_name': actor.name if actor else 'Unknown', 'timestamp': e.timestamp.isoformat()})
+    return {'document_id': str(document_id), 'events': entries}
