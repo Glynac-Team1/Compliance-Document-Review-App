@@ -1,21 +1,86 @@
 import asyncio
 import json
 import uuid
-from typing import Dict, Set
+from typing import Dict, Set, Optional
+
+import redis.asyncio as aioredis
+
+from app.config import settings
+
+REDIS_CHANNEL = "sse_events"
 
 
 class EventManager:
-    """Manages active SSE connections and broadcasts live updates & notifications."""
+    """
+    Manages active SSE connections and broadcasts live updates & notifications
+    across multiple Uvicorn workers / container replicas via Redis Pub/Sub.
+
+    A live SSE connection only exists in the memory of the single process that
+    accepted it, so each process still keeps its own local map of connected
+    clients. What changes here is that events are no longer delivered directly
+    to local queues, instead, they're published to a shared Redis channel.
+    Every process (including the one that published) subscribes to that
+    channel and delivers incoming events to whichever local connections it
+    happens to be holding. This means a broadcast triggered on one worker
+    reaches clients connected to any other worker.
+    """
 
     def __init__(self):
-        # Maps user_id -> Set of asyncio.Queue for connected user clients
         self.user_connections: Dict[uuid.UUID, Set[asyncio.Queue]] = {}
+        self._redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+        self._pubsub_task: Optional[asyncio.Task] = None
+
+    async def start(self):
+        """Start the background Redis subscriber. Call once on app startup."""
+        if self._pubsub_task is not None:
+            return
+        self._pubsub_task = asyncio.create_task(self._subscribe_loop())
+
+    async def stop(self):
+        """Stop the subscriber cleanly. Call on app shutdown."""
+        if self._pubsub_task is not None:
+            self._pubsub_task.cancel()
+            self._pubsub_task = None
+        await self._redis.close()
+
+    async def _subscribe_loop(self):
+        pubsub = self._redis.pubsub()
+        await pubsub.subscribe(REDIS_CHANNEL)
+        try:
+            async for message in pubsub.listen():
+                if message["type"] != "message":
+                    continue
+                try:
+                    envelope = json.loads(message["data"])
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                await self._deliver_locally(envelope)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            await pubsub.unsubscribe(REDIS_CHANNEL)
+
+    async def _deliver_locally(self, envelope: dict):
+        target = envelope.get("target")
+        payload = envelope.get("payload")
+
+        if target == "user":
+            await self._push_local(uuid.UUID(envelope["user_id"]), payload)
+        elif target == "users":
+            for uid_str in envelope.get("user_ids", []):
+                await self._push_local(uuid.UUID(uid_str), payload)
+        elif target == "all":
+            for uid in list(self.user_connections.keys()):
+                await self._push_local(uid, payload)
+
+    async def _push_local(self, user_id: uuid.UUID, payload: dict):
+        if user_id in self.user_connections:
+            for q in list(self.user_connections[user_id]):
+                await q.put(payload)
 
     def register(self, user_id: uuid.UUID) -> asyncio.Queue:
         q = asyncio.Queue()
-        if user_id not in self.user_connections:
-            self.user_connections[user_id] = set()
-        self.user_connections[user_id].add(q)
+        self.user_connections.setdefault(user_id, set()).add(q)
         return q
 
     def unregister(self, user_id: uuid.UUID, q: asyncio.Queue):
@@ -25,21 +90,29 @@ class EventManager:
                 del self.user_connections[user_id]
 
     async def send_to_user(self, user_id: uuid.UUID, payload: dict):
-        """Send a real-time event to a specific user's connected clients."""
-        if user_id in self.user_connections:
-            for q in list(self.user_connections[user_id]):
-                await q.put(payload)
+        """Publish an event for a specific user. Delivered to that user's
+        connections on whichever process they're connected to."""
+        await self._redis.publish(REDIS_CHANNEL, json.dumps({
+            "target": "user",
+            "user_id": str(user_id),
+            "payload": payload,
+        }))
 
     async def broadcast_to_users(self, user_ids: list[uuid.UUID], payload: dict):
-        """Send a real-time event to multiple users."""
-        for uid in user_ids:
-            await self.send_to_user(uid, payload)
+        """Publish an event for multiple specific users."""
+        await self._redis.publish(REDIS_CHANNEL, json.dumps({
+            "target": "users",
+            "user_ids": [str(uid) for uid in user_ids],
+            "payload": payload,
+        }))
 
     async def broadcast_all(self, payload: dict):
-        """Broadcast a synchronization signal to all connected clients."""
-        for queues in list(self.user_connections.values()):
-            for q in list(queues):
-                await q.put(payload)
+        """Publish a synchronization signal to every connected client,
+        across all processes."""
+        await self._redis.publish(REDIS_CHANNEL, json.dumps({
+            "target": "all",
+            "payload": payload,
+        }))
 
 
 event_manager = EventManager()

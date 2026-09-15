@@ -9,8 +9,19 @@ from app.api.notifications import router as notifications_router
 
 
 from fastapi.responses import JSONResponse
+from app.core.events import event_manager
 
 app = FastAPI(title="Compliance Document Review API")
+
+
+@app.on_event("startup")
+async def start_event_manager():
+    await event_manager.start()
+
+
+@app.on_event("shutdown")
+async def stop_event_manager():
+    await event_manager.stop()
 
 # Allow Next.js frontend across localhost, IP, and remote environments
 app.add_middleware(
