@@ -4,6 +4,7 @@ from app.api.documents import router as documents_router
 from app.api.roles import officer_router, advisor_router
 from app.api.auth import router as auth_router
 import logging
+import uuid
 from app.api.notifications import router as notifications_router
 
 
@@ -25,10 +26,11 @@ logger = logging.getLogger("compliance_review")
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    correlation_id = str(uuid.uuid4())
+    logger.exception("Unhandled exception [%s] on %s %s", correlation_id, request.method, request.url.path)
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error"},
+        content={"detail": "Internal server error. Please try again later.", "correlation_id": correlation_id},
     )
 
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
@@ -36,7 +38,6 @@ app.include_router(advisor_router, prefix="/documents/mine", tags=["advisor"])
 app.include_router(documents_router, prefix="/documents", tags=["documents"])
 app.include_router(officer_router, prefix="/queue", tags=["officer"])
 app.include_router(notifications_router, prefix="/notifications", tags=["notifications"])
-
 
 
 
