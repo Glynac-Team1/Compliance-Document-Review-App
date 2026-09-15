@@ -20,8 +20,9 @@ async def list_my_documents(
     advisor_id = user_token["sub"]
     ClaimingOfficer = aliased(User)
     query = (
-        select(Document, ClaimingOfficer)
+        select(Document, ClaimingOfficer, Review)
         .outerjoin(ClaimingOfficer, Document.locked_by_officer_id == ClaimingOfficer.id)
+        .outerjoin(Review, Review.document_id == Document.id)
         .where(Document.advisor_id == advisor_id)
         .order_by(desc(Document.created_at))
     )
@@ -29,16 +30,11 @@ async def list_my_documents(
     rows = result.all()
     
     formatted_docs = []
-    for doc, claiming_officer in rows:
+    for doc, claiming_officer, latest_review in rows:
         expired = is_lock_expired(doc)
         # For the advisor, if the document has been claimed/in review, preserve in_review unless released
         effective_claiming_officer = claiming_officer
         effective_status = doc.status.value
-
-        # Fetch the latest review for this document
-        rev_query = select(Review).where(Review.document_id == doc.id).order_by(desc(Review.decided_at)).limit(1)
-        rev_result = await db.execute(rev_query)
-        latest_review = rev_result.scalar_one_or_none()
 
         if latest_review and latest_review.comment:
             officer_comment = latest_review.comment
