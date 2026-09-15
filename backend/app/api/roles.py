@@ -184,4 +184,4 @@ async def get_document_url(
         ExpiresIn=3600
     )
     # Rewrite the internal Docker URL to localhost so the browser can reach it
-    return {"url": url.replace("http://minio:9000", "http://localhost:9000")}
+    return {"url": url.replace(settings.minio_endpoint, settings.public_storage_url)}

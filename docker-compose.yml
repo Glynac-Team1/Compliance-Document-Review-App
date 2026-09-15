@@ -51,6 +51,7 @@ services:
       OFFICER_SIGNUP_CODE: ${OFFICER_SIGNUP_CODE:?OFFICER_SIGNUP_CODE must be set}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      PUBLIC_STORAGE_URL: ${PUBLIC_STORAGE_URL:-http://localhost:9000}
     ports:
       - "8000:8000"
     volumes:

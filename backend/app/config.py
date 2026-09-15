@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     minio_endpoint: str = "http://minio:9000"
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
+
+    # Public URL for presigned MinIO URLs returned to clients (e.g. document viewer)
+    public_storage_url: str = "http://localhost:9000"
     minio_bucket_name: str = "compliance-documents"
 
     # API & Security
