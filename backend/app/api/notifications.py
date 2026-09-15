@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.core.security import require_any_role, decode_raw_token
+from app.core.sse_tickets import issue_ticket, redeem_ticket
 from app.core.events import event_manager
 from models import Role, Notification, User
 
@@ -102,13 +103,23 @@ async def mark_all_notifications_read(
     return {"message": "All notifications marked as read", "unread_count": 0}
 
 
+@router.post("/stream/ticket")
+async def create_stream_ticket(
+    user_token: dict = Depends(require_any_role(Role.advisor, Role.officer)),
+):
+    user_id = uuid.UUID(user_token["sub"])
+    ticket = issue_ticket(user_id)
+    return {"ticket": ticket}
+
+
 @router.get("/stream")
 async def stream_events(
-    token: str = Query(...),
+    ticket: str = Query(...),
 ):
     """Server-Sent Events (SSE) stream for live updates and instant notifications."""
-    user_token = decode_raw_token(token)
-    user_id = uuid.UUID(user_token["sub"])
+    user_id = redeem_ticket(ticket)
+    if user_id is None:
+        raise HTTPException(401, "Invalid or expired ticket")
 
     q = event_manager.register(user_id)
 
