@@ -33,10 +33,10 @@ class AuthRequest(BaseModel):
 
 @router.post("/signup")
 async def signup(req: AuthRequest, db: AsyncSession = Depends(get_db)):
-    # Check if the user already exists in Postgres
     if req.role == Role.officer:
-        if not req.officer_invite_code or req.officer_invite_code != settings.officer_signup_code:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or missing officer invite code")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Public registration cannot assign the officer role")
+
+    # Check if the user already exists in Postgres
     result = await db.execute(select(User).where(User.email == req.email))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
@@ -45,7 +45,7 @@ async def signup(req: AuthRequest, db: AsyncSession = Depends(get_db)):
     new_user = User(
         email=req.email,
         password_hash=hash_password(req.password),
-        role=req.role,
+        role=Role.advisor,
         name=req.name
     )
     db.add(new_user)

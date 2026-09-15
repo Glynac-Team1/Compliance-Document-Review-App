@@ -1,5 +1,6 @@
 # backend/app/config.py
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
 
 
 class Settings(BaseSettings):
@@ -17,6 +18,7 @@ class Settings(BaseSettings):
     minio_bucket_name: str = "compliance-documents"
 
     # API & Security
+    environment: str = 'development'
     session_secret: str
     officer_signup_code: str 
     llm_provider: str = "gemini"
@@ -29,6 +31,13 @@ class Settings(BaseSettings):
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }
+
+
+    @model_validator(mode='after')
+    def reject_default_secret_in_production(self):
+        if self.environment != 'development' and self.session_secret == 'dev-secret-change-me':
+            raise ValueError('SESSION_SECRET must not be the default dev value outside development')
+        return self
 
 
 settings = Settings()
