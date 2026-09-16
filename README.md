@@ -100,11 +100,15 @@ Open `.env` and set at least these values:
 LLM_API_KEY=your-provider-api-key
 LLM_PROVIDER=gemini
 SESSION_SECRET=replace-with-a-long-random-value
+OFFICER_SIGNUP_CODE=replace-with-a-strong-one-time-code
 ```
 
 Supported provider values are `gemini` and `groq`. Leave `LLM_API_KEY` empty when
 working only on the non-AI scaffold; the API can still start, but AI analysis will
 not be available.
+Use a private value for `OFFICER_SIGNUP_CODE`; it is required when creating a
+compliance officer account and should be changed from the local development value
+before sharing or deploying the environment.
 
 The Compose file supplies the container-internal database and Redis URLs. Do not
 replace `DATABASE_URL` with `localhost` for the Docker workflow: inside the backend
