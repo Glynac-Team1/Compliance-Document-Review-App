@@ -16,12 +16,75 @@ def verify_password(raw: str, hashed: str) -> bool:
     return bcrypt.checkpw(raw.encode('utf-8'), hashed.encode('utf-8'))
 
 
-def create_session_token(user_id: str, role: Role, expires_delta: timedelta | None = None) -> str:
+import secrets
+import re
+
+COMMON_WEAK_PASSWORDS = {
+    "password", "password123", "12345678", "123456789", "admin123",
+    "qwerty123", "welcome123", "letmein123", "compliance123"
+}
+COMMON_WEAK_BASES = {"password", "admin", "welcome", "qwerty", "letmein", "compliance"}
+
+def validate_password_strength(password: str) -> None:
+    """Enforces enterprise password policy:
+    - Minimum 8 characters
+    - At least one uppercase letter (A-Z)
+    - At least one lowercase letter (a-z)
+    - At least one number (0-9)
+    - At least one special symbol
+    - Not a common dictionary word or predictable pattern
+    """
+    if not password or len(password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 8 characters long."
+        )
+    
+    clean_base = re.sub(r'[\d!@#$%^&*()_+\-=\[\]{}|;:,.<>?/~`]', '', password.lower())
+    if password.lower() in COMMON_WEAK_PASSWORDS or clean_base in COMMON_WEAK_BASES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password is too common or easily guessable. Please choose a stronger password."
+        )
+    if not re.search(r"[A-Z]", password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must contain at least one uppercase letter (A-Z)."
+        )
+    if not re.search(r"[a-z]", password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must contain at least one lowercase letter (a-z)."
+        )
+    if not re.search(r"\d", password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must contain at least one number (0-9)."
+        )
+    if not re.search(r"[!@#$%^&*()_+\-=\[\]{}|;:,.<>?/~`]", password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must contain at least one special symbol (!@#$%^&*...)."
+        )
+
+def generate_secure_token(nbytes: int = 32) -> str:
+    """Generates a cryptographically random, URL-safe 256-bit token using OS CSPRNG."""
+    return secrets.token_urlsafe(nbytes)
+
+def create_session_token(
+    user_id: str,
+    role: Role,
+    workspace_id: str | None = None,
+    is_admin: bool = False,
+    expires_delta: timedelta | None = None
+) -> str:
     now = datetime.now(timezone.utc)
     expire = now + (expires_delta if expires_delta is not None else DEFAULT_SESSION_DURATION)
     payload = {
         "sub": str(user_id),
         "role": role.value,
+        "workspace_id": str(workspace_id) if workspace_id else None,
+        "is_admin": is_admin,
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
     }

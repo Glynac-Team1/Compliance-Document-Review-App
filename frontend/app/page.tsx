@@ -10,6 +10,8 @@ import {
   ShieldCheck,
   Sparkles,
   UserRound,
+  Building2,
+  AlertCircle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { getApiBaseUrl } from "@/lib/api";
@@ -82,6 +84,7 @@ export default function Page() {
   const [role, setRole] = useState<"Financial Advisor" | "Compliance Officer">(
     "Financial Advisor",
   );
+  const [workspaceSlug, setWorkspaceSlug] = useState("northstar");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(
@@ -90,6 +93,12 @@ export default function Page() {
   const [toast, setToast] = useState("");
 
   useEffect(() => {
+    // Read remembered workspace slug from past session
+    const savedSlug = localStorage.getItem("last_workspace_slug");
+    if (savedSlug) {
+      setWorkspaceSlug(savedSlug);
+    }
+
     async function checkExistingSession() {
       const token = localStorage.getItem("auth_token");
       if (!token) {
@@ -106,6 +115,10 @@ export default function Page() {
           const data = await res.json();
           if (data.role) localStorage.setItem("user_role", data.role);
           if (data.slug) localStorage.setItem("user_slug", data.slug);
+          if (data.workspace_slug) {
+            localStorage.setItem("last_workspace_slug", data.workspace_slug);
+            setWorkspaceSlug(data.workspace_slug);
+          }
           setActiveSession(data);
         } else {
           // Token expired or invalid
@@ -147,6 +160,7 @@ export default function Page() {
           password,
           name,
           role: role === "Financial Advisor" ? "advisor" : "officer",
+          workspace_slug: workspaceSlug,
         }),
       });
 
@@ -163,6 +177,12 @@ export default function Page() {
       }
       if (data.slug) {
         localStorage.setItem("user_slug", data.slug);
+      }
+      if (data.workspace_slug) {
+        localStorage.setItem("last_workspace_slug", data.workspace_slug);
+      }
+      if (data.workspace_name) {
+        localStorage.setItem("workspace_name", data.workspace_name);
       }
 
       // Securely route to the personalized workspace dashboard
@@ -333,6 +353,29 @@ export default function Page() {
               className="auth-form flex flex-col gap-5"
               key={mode}
             >
+              {/* Multi-Tenant Workspace Selector */}
+              <div className="flex items-center justify-between rounded-lg border border-border/80 bg-muted/40 px-3 py-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <Building2 className="size-3.5 text-primary" />
+                  <span className="text-muted-foreground">Workspace:</span>
+                  <span className="font-semibold text-foreground">
+                    {workspaceSlug === "northstar" ? "Northstar Compliance" : workspaceSlug}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const newSlug = window.prompt("Enter company workspace slug:", workspaceSlug);
+                    if (newSlug && newSlug.trim()) {
+                      setWorkspaceSlug(newSlug.trim().toLowerCase());
+                    }
+                  }}
+                  className="text-[11px] font-semibold text-primary hover:underline"
+                >
+                  Change
+                </button>
+              </div>
+
               {mode === "signup" && (
                 <label className="flex flex-col gap-2 text-xs font-semibold">
                   Full name
@@ -408,6 +451,16 @@ export default function Page() {
                       onClick={() => setRole("Compliance Officer")}
                     />
                   </div>
+                  {role === "Compliance Officer" && (
+                    <div className="mt-2 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="size-4 shrink-0 mt-0.5" />
+                        <span className="leading-relaxed">
+                          <strong>Admin Invite Required:</strong> To maintain strict regulatory security, Compliance Officers cannot self-register. Please use the invitation link sent to your email.
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </fieldset>
               )}
               <button
@@ -425,7 +478,29 @@ export default function Page() {
                 )}
               </button>
             </form>
-            <div className="mt-7 flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
+            <div className="mt-5 border-t border-border/60 pt-4 flex flex-col items-center gap-2 text-center text-xs text-muted-foreground">
+              <p>
+                Have an onboarding invitation?{" "}
+                <button
+                  type="button"
+                  onClick={() => router.push("/accept-invite")}
+                  className="font-semibold text-primary hover:underline"
+                >
+                  Accept Invite
+                </button>
+              </p>
+              <p>
+                Workspace Administrator?{" "}
+                <button
+                  type="button"
+                  onClick={() => router.push("/admin")}
+                  className="font-semibold text-primary hover:underline"
+                >
+                  Admin Console
+                </button>
+              </p>
+            </div>
+            <div className="mt-5 flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
               <LockKeyhole className="size-3.5" />
               Your data is encrypted and protected
             </div>
