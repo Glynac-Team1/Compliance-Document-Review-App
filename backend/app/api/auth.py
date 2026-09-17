@@ -16,16 +16,28 @@ from app.core.security import (
 
 router = APIRouter()
 
-def generate_user_slug(name: str | None, email: str | None = None) -> str:
-    """Generate a clean URL-friendly identifier from user name or email."""
+def generate_user_slug(
+    name: str | None,
+    email: str | None = None,
+    workspace_slug: str | None = None,
+) -> str:
+    """Generate a clean URL-friendly identifier combining workspace and user name or email."""
+    user_part = ""
     if name and name.strip() and name.strip().lower() != "new user":
-        clean = re.sub(r'[^a-zA-Z0-9]+', '-', name.strip()).strip('-').lower()
-        if clean:
-            return clean
-    if email and "@" in email:
-        clean = re.sub(r'[^a-zA-Z0-9]+', '-', email.split("@")[0].strip()).strip('-').lower()
-        if clean:
-            return clean
+        user_part = re.sub(r'[^a-zA-Z0-9]+', '-', name.strip()).strip('-').lower()
+    if not user_part and email and "@" in email:
+        user_part = re.sub(r'[^a-zA-Z0-9]+', '-', email.split("@")[0].strip()).strip('-').lower()
+
+    ws_clean = ""
+    if workspace_slug and workspace_slug.strip():
+        ws_clean = re.sub(r'[^a-zA-Z0-9]+', '-', workspace_slug.strip()).strip('-').lower()
+
+    if ws_clean and user_part:
+        return f"{ws_clean}-{user_part}"
+    elif ws_clean and not user_part:
+        return f"{ws_clean}-member"
+    elif user_part:
+        return user_part
     return "workspace"
 
 # Data expected from frontend
@@ -148,7 +160,7 @@ async def signup(req: AuthRequest, db: AsyncSession = Depends(get_db)):
         role=new_user.role,
         workspace_id=str(workspace_id) if workspace_id else None,
     )
-    slug = generate_user_slug(new_user.name, new_user.email)
+    slug = generate_user_slug(new_user.name, new_user.email, req.workspace_slug)
     return {
         "token": token,
         "role": new_user.role.value,
@@ -187,7 +199,7 @@ async def login(req: AuthRequest, db: AsyncSession = Depends(get_db)):
         workspace_id=str(user.workspace_id) if user.workspace_id else None,
         is_admin=user.is_admin,
     )
-    slug = generate_user_slug(user.name, user.email)
+    slug = generate_user_slug(user.name, user.email, workspace_slug)
     return {
         "token": token,
         "role": user.role.value,
@@ -216,7 +228,7 @@ async def get_current_user(token: dict = Depends(decode_session_token), db: Asyn
             workspace_name = ws.name
             workspace_slug = ws.slug
 
-    slug = generate_user_slug(user.name, user.email)
+    slug = generate_user_slug(user.name, user.email, workspace_slug)
     return {
         "name": user.name,
         "email": user.email,

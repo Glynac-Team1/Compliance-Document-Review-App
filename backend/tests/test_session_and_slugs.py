@@ -14,6 +14,14 @@ def test_slug_generation():
     assert generate_user_slug("", "test.user@company.com") == "test-user"
     assert generate_user_slug(None, None) == "workspace"
 
+def test_slug_generation_with_workspace():
+    # Verify slug bears both workspace and advisor/officer name
+    assert generate_user_slug("Daniel Ojo", workspace_slug="northstar") == "northstar-daniel-ojo"
+    assert generate_user_slug("Jordan Davis, CFA", workspace_slug="northstar") == "northstar-jordan-davis-cfa"
+    assert generate_user_slug("Sarah Connor", workspace_slug="apex-capital") == "apex-capital-sarah-connor"
+    assert generate_user_slug("New User", "alex.officer@firm.com", workspace_slug="northstar") == "northstar-alex-officer"
+    assert generate_user_slug(None, None, workspace_slug="northstar") == "northstar-member"
+
 def test_valid_session_token_decoding():
     token = create_session_token("test-user-id", Role.advisor)
     creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)

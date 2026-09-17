@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, LogOut, ShieldCheck } from 'lucide-react'
+import { ChevronDown, LogOut, ShieldCheck, Building2 } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
 
 interface UserProfile {
@@ -10,6 +10,9 @@ interface UserProfile {
   email: string
   role: string
   slug?: string
+  workspace_name?: string
+  workspace_slug?: string
+  is_admin?: boolean
 }
 
 interface UserNavProps {
@@ -131,6 +134,12 @@ export default function UserNav({ variant = 'header', collapsed = false, onLogou
                 </div>
                 <p className="mt-2 text-sm font-semibold text-foreground truncate">{displayName}</p>
                 <p className="text-xs text-muted-foreground truncate">{displayEmail}</p>
+                {user?.workspace_name && (
+                  <div className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground truncate">
+                    <Building2 className="size-3 text-primary shrink-0" />
+                    <span className="truncate">{user.workspace_name}</span>
+                  </div>
+                )}
                 {workspacePath && (
                   <p className="mt-1 font-mono text-[10px] text-muted-foreground truncate">{workspacePath}</p>
                 )}
@@ -243,6 +252,12 @@ export default function UserNav({ variant = 'header', collapsed = false, onLogou
             </div>
             <p className="mt-2 text-sm font-semibold text-foreground truncate">{displayName}</p>
             <p className="text-xs text-muted-foreground truncate">{displayEmail}</p>
+            {user?.workspace_name && (
+              <div className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground truncate">
+                <Building2 className="size-3 text-primary shrink-0" />
+                <span className="truncate">{user.workspace_name}</span>
+              </div>
+            )}
             {workspacePath && (
               <p className="mt-1 font-mono text-[10px] text-muted-foreground truncate">{workspacePath}</p>
             )}

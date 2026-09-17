@@ -218,7 +218,7 @@ async def accept_invitation(req: AcceptInvitationRequest, db: AsyncSession = Dep
         role=user.role,
         workspace_id=str(workspace.id),
     )
-    slug = generate_user_slug(user.name, user.email)
+    slug = generate_user_slug(user.name, user.email, workspace.slug)
 
     return {
         "token": token,
@@ -267,10 +267,14 @@ async def list_workspace_team(
     db: AsyncSession = Depends(get_db),
 ):
     """Lists all active team members in the workspace."""
-    query = select(User).order_by(User.created_at.desc())
+    query = (
+        select(User, Workspace.slug)
+        .outerjoin(Workspace, User.workspace_id == Workspace.id)
+        .order_by(User.created_at.desc())
+    )
     result = await db.execute(query)
     members = []
-    for u in result.scalars().all():
+    for u, ws_slug in result.all():
         members.append({
             "id": str(u.id),
             "name": u.name,
@@ -278,6 +282,6 @@ async def list_workspace_team(
             "role": u.role.value,
             "is_admin": u.is_admin,
             "created_at": u.created_at.isoformat(),
-            "slug": generate_user_slug(u.name, u.email),
+            "slug": generate_user_slug(u.name, u.email, ws_slug or "northstar"),
         })
     return {"team": members}
