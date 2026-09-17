@@ -124,3 +124,35 @@
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes float-slow {
+  0%, 100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  50% {
+    transform: translate(18px, -22px) scale(1.06);
+  }
+}
+
+@keyframes float-reverse {
+  0%, 100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  50% {
+    transform: translate(-22px, 18px) scale(0.96);
+  }
+}
+
+.animate-float-slow {
+  animation: float-slow 14s ease-in-out infinite;
+}
+
+.animate-float-reverse {
+  animation: float-reverse 18s ease-in-out infinite;
+}
+
+.bg-grid-pattern {
+  background-image: radial-gradient(rgba(100, 116, 139, 0.18) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
