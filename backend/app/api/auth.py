@@ -230,6 +230,7 @@ async def get_current_user(token: dict = Depends(decode_session_token), db: Asyn
 
     slug = generate_user_slug(user.name, user.email, workspace_slug)
     return {
+        "id": str(user.id),
         "name": user.name,
         "email": user.email,
         "role": user.role.value,
@@ -237,4 +238,73 @@ async def get_current_user(token: dict = Depends(decode_session_token), db: Asyn
         "workspace_name": workspace_name,
         "workspace_slug": workspace_slug,
         "is_admin": user.is_admin,
+    }
+
+
+class CreateWorkspaceRequest(BaseModel):
+    workspace_name: str
+    workspace_slug: str
+    admin_name: str
+    admin_email: str
+    admin_password: str
+
+
+@router.post("/workspaces")
+async def create_new_workspace(req: CreateWorkspaceRequest, db: AsyncSession = Depends(get_db)):
+    """Allows a new financial firm to register an organization workspace with an initial Administrator."""
+    validate_password_strength(req.admin_password)
+
+    slug = re.sub(r'[^a-zA-Z0-9]+', '-', req.workspace_slug.strip()).strip('-').lower()
+    if not slug:
+        raise HTTPException(status_code=400, detail="Invalid workspace slug.")
+
+    ws_res = await db.execute(select(Workspace).where(Workspace.slug == slug))
+    if ws_res.scalar_one_or_none():
+        raise HTTPException(
+            status_code=400,
+            detail="A workspace with this URL slug already exists. Please choose a different identifier.",
+        )
+
+    user_res = await db.execute(select(User).where(User.email == req.admin_email.strip().lower()))
+    if user_res.scalar_one_or_none():
+        raise HTTPException(
+            status_code=400,
+            detail="An account with this email address already exists.",
+        )
+
+    workspace = Workspace(name=req.workspace_name.strip(), slug=slug)
+    db.add(workspace)
+    await db.commit()
+    await db.refresh(workspace)
+
+    admin_user = User(
+        name=req.admin_name.strip(),
+        email=req.admin_email.strip().lower(),
+        password_hash=hash_password(req.admin_password),
+        role=Role.officer,
+        workspace_id=workspace.id,
+        is_admin=True,
+    )
+    db.add(admin_user)
+    await db.commit()
+    await db.refresh(admin_user)
+
+    token = create_session_token(
+        user_id=str(admin_user.id),
+        role=admin_user.role,
+        workspace_id=str(workspace.id),
+        is_admin=True,
+    )
+    user_slug = generate_user_slug(admin_user.name, admin_user.email, workspace.slug)
+
+    return {
+        "token": token,
+        "role": admin_user.role.value,
+        "name": admin_user.name,
+        "email": admin_user.email,
+        "slug": user_slug,
+        "workspace_name": workspace.name,
+        "workspace_slug": workspace.slug,
+        "is_admin": True,
+        "message": f"Workspace '{workspace.name}' successfully created.",
     }

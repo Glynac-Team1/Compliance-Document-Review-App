@@ -31,10 +31,47 @@ class AcceptInvitationRequest(BaseModel):
     password: str
 
 
+async def require_admin_user(
+    token: dict = Depends(decode_session_token),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Verifies that the requester has active Workspace Administrator privileges."""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication token missing user identification.",
+        )
+
+    try:
+        uid = uuid.UUID(user_id)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid user ID format in token.",
+        )
+
+    result = await db.execute(select(User).where(User.id == uid))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User account not found.",
+        )
+
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workspace Administrator privileges required. You do not have permission to perform this action.",
+        )
+
+    return user
+
+
 @router.post("/admin/invitations")
 async def create_invitation(
     req: CreateInvitationRequest,
-    token: dict = Depends(decode_session_token),
+    admin: User = Depends(require_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Workspace Admin invites an employee by email with a locked pre-assigned role."""
@@ -234,7 +271,7 @@ async def accept_invitation(req: AcceptInvitationRequest, db: AsyncSession = Dep
 
 @router.get("/admin/invitations")
 async def list_workspace_invitations(
-    token: dict = Depends(decode_session_token),
+    admin: User = Depends(require_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Lists all pending and historical invitations for the workspace."""
@@ -261,15 +298,44 @@ async def list_workspace_invitations(
     return {"invitations": invites}
 
 
+@router.delete("/admin/invitations/{invitation_id}")
+async def revoke_invitation(
+    invitation_id: str,
+    admin: User = Depends(require_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Revokes a pending workspace invitation."""
+    try:
+        inv_uuid = uuid.UUID(invitation_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid invitation ID format.",
+        )
+
+    result = await db.execute(select(WorkspaceInvitation).where(WorkspaceInvitation.id == inv_uuid))
+    inv = result.scalar_one_or_none()
+    if not inv:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found.",
+        )
+
+    inv.status = InvitationStatus.revoked
+    await db.commit()
+    return {"message": f"Invitation for {inv.email} has been revoked.", "id": str(inv.id), "status": "revoked"}
+
+
 @router.get("/admin/team")
 async def list_workspace_team(
-    token: dict = Depends(decode_session_token),
+    admin: User = Depends(require_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Lists all active team members in the workspace."""
     query = (
         select(User, Workspace.slug)
         .outerjoin(Workspace, User.workspace_id == Workspace.id)
+        .where(User.workspace_id.isnot(None))
         .order_by(User.created_at.desc())
     )
     result = await db.execute(query)
@@ -285,3 +351,37 @@ async def list_workspace_team(
             "slug": generate_user_slug(u.name, u.email, ws_slug or "northstar"),
         })
     return {"team": members}
+
+
+@router.delete("/admin/team/{user_id}")
+async def remove_team_member(
+    user_id: str,
+    admin: User = Depends(require_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Removes a user from the workspace."""
+    try:
+        member_uuid = uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user ID format.",
+        )
+
+    if member_uuid == admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot remove your own administrator account.",
+        )
+
+    result = await db.execute(select(User).where(User.id == member_uuid))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+
+    user.workspace_id = None
+    await db.commit()
+    return {"message": f"User {user.name} ({user.email}) has been removed from the workspace.", "id": str(user.id)}
