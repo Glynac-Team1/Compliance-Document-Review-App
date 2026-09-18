@@ -27,8 +27,21 @@ class EventManager:
 
     def __init__(self):
         self.user_connections: Dict[uuid.UUID, Set[asyncio.Queue]] = {}
-        self._redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+        self._redis: Optional[aioredis.Redis] = None
         self._pubsub_task: Optional[asyncio.Task] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    @property
+    def redis(self) -> aioredis.Redis:
+        current_loop = None
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        if self._redis is None or (current_loop is not None and self._loop != current_loop):
+            self._redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+            self._loop = current_loop
+        return self._redis
 
     async def start(self):
         """Start the background Redis subscriber. Call once on app startup."""
@@ -41,10 +54,12 @@ class EventManager:
         if self._pubsub_task is not None:
             self._pubsub_task.cancel()
             self._pubsub_task = None
-        await self._redis.close()
+        if self._redis is not None:
+            await self._redis.close()
+            self._redis = None
 
     async def _subscribe_loop(self):
-        pubsub = self._redis.pubsub()
+        pubsub = self.redis.pubsub()
         await pubsub.subscribe(REDIS_CHANNEL)
         try:
             async for message in pubsub.listen():
@@ -92,7 +107,7 @@ class EventManager:
     async def send_to_user(self, user_id: uuid.UUID, payload: dict):
         """Publish an event for a specific user. Delivered to that user's
         connections on whichever process they're connected to."""
-        await self._redis.publish(REDIS_CHANNEL, json.dumps({
+        await self.redis.publish(REDIS_CHANNEL, json.dumps({
             "target": "user",
             "user_id": str(user_id),
             "payload": payload,
@@ -100,7 +115,7 @@ class EventManager:
 
     async def broadcast_to_users(self, user_ids: list[uuid.UUID], payload: dict):
         """Publish an event for multiple specific users."""
-        await self._redis.publish(REDIS_CHANNEL, json.dumps({
+        await self.redis.publish(REDIS_CHANNEL, json.dumps({
             "target": "users",
             "user_ids": [str(uid) for uid in user_ids],
             "payload": payload,
@@ -109,7 +124,7 @@ class EventManager:
     async def broadcast_all(self, payload: dict):
         """Publish a synchronization signal to every connected client,
         across all processes."""
-        await self._redis.publish(REDIS_CHANNEL, json.dumps({
+        await self.redis.publish(REDIS_CHANNEL, json.dumps({
             "target": "all",
             "payload": payload,
         }))

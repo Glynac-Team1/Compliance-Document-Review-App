@@ -22,8 +22,8 @@ class Settings(BaseSettings):
 
     # API & Security
     environment: str = 'development'
-    session_secret: str
-    officer_signup_code: str 
+    session_secret: str = "dev-secret-change-me"
+    officer_signup_code: str = ""
     llm_provider: str = "gemini"
     llm_api_key: str | None = None
     
