@@ -11,19 +11,16 @@ import { useLiveSync, AppNotification } from '@/lib/useLiveSync'
 import { getApiBaseUrl } from '@/lib/api'
 import {
   ArrowLeft,
-  BarChart3,
   FileCheck2,
   LayoutList,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
-  Settings,
   ShieldCheck,
-  SlidersHorizontal,
 } from 'lucide-react'
 import type { DocumentItem, DocumentStatus } from '@/types/document'
 
-type Screen = 'queue' | 'recent' | 'analytics' | 'settings'
+type Screen = 'queue' | 'recent'
 
 function Brand({
   collapsed,
@@ -118,8 +115,6 @@ function Nav({
   const items = [
     ['queue', 'Review queue', LayoutList],
     ['recent', 'Recently reviewed', FileCheck2],
-    ['analytics', 'Analytics', BarChart3],
-    ['settings', 'Settings', Settings],
   ] as const
 
   const handleClick = (id: Screen) => {
@@ -274,8 +269,6 @@ function DashboardView({
   const titleMap: Record<Screen, string> = {
     queue: 'Review queue',
     recent: 'Recently reviewed',
-    analytics: 'Analytics',
-    settings: 'Workspace settings',
   }
 
   return (
@@ -316,52 +309,6 @@ function DashboardView({
       {/* Main scrollable body for dashboard views */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {children}
-      </div>
-    </div>
-  )
-}
-
-function Placeholder({ screen }: { screen: Screen }) {
-  const titles: Record<Screen, string> = {
-    queue: 'Review queue',
-    recent: 'Recently reviewed',
-    analytics: 'Team analytics',
-    settings: 'Workspace settings',
-  }
-
-  return (
-    <div className="mx-auto max-w-[1100px] p-5 lg:p-8">
-      <div className="rounded-xl border border-border bg-card p-8">
-        <div className="flex size-11 items-center justify-center rounded-xl bg-primary/8 text-primary">
-          <SlidersHorizontal className="size-5" />
-        </div>
-
-        <h1 className="mt-6 text-2xl font-semibold tracking-tight">{titles[screen]}</h1>
-        <p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">
-          This workspace view is ready for your team’s operational data. Connect it to your document service
-          to see live activity, trends, and reviewer preferences here.
-        </p>
-
-        <div className="mt-8 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg bg-muted/50 p-4">
-            <p className="text-xs font-semibold">Coming next</p>
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              Live {screen} data and saved filters.
-            </p>
-          </div>
-          <div className="rounded-lg bg-muted/50 p-4">
-            <p className="text-xs font-semibold">Designed for audit</p>
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              Every action is traceable and exportable.
-            </p>
-          </div>
-          <div className="rounded-lg bg-muted/50 p-4">
-            <p className="text-xs font-semibold">Role-aware</p>
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              Views adapt to reviewer permissions.
-            </p>
-          </div>
-        </div>
       </div>
     </div>
   )
@@ -559,10 +506,8 @@ export default function OfficerWorkspace({ slug: _slug }: OfficerWorkspaceProps)
           >
             {screen === 'queue' ? (
               <Queue onReview={handleOpenReview} initialTab="unreviewed" refreshTrigger={queueSyncTrigger} />
-            ) : screen === 'recent' ? (
-              <Queue onReview={handleOpenReview} initialTab="reviewed" refreshTrigger={queueSyncTrigger} />
             ) : (
-              <Placeholder screen={screen} />
+              <Queue onReview={handleOpenReview} initialTab="reviewed" refreshTrigger={queueSyncTrigger} />
             )}
           </DashboardView>
         )}

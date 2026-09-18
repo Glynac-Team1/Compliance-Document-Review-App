@@ -149,6 +149,20 @@ export default function Submissions({
     const file = e.target.files?.[0]
     if (!file || !selectedDocument?.id) return
 
+    const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
+    const allowed = ['.pdf', '.docx', '.xlsx']
+    if (!allowed.includes(ext)) {
+      toast.error('Unsupported File Type', `Only PDF (.pdf), Word (.docx), and Excel (.xlsx) files are supported.`)
+      if (resubmitInputRef.current) resubmitInputRef.current.value = ''
+      return
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File Too Large', 'Document exceeds the maximum allowed size of 10 MB.')
+      if (resubmitInputRef.current) resubmitInputRef.current.value = ''
+      return
+    }
+
     setIsResubmitting(true)
     const formData = new FormData()
     formData.append('file', file)
@@ -284,6 +298,7 @@ export default function Submissions({
                 <input
                   ref={resubmitInputRef}
                   type="file"
+                  accept=".pdf,.docx,.xlsx"
                   className="hidden"
                   onChange={handleResubmit}
                 />

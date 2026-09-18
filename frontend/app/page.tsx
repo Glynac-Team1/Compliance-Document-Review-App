@@ -1,460 +1,944 @@
 "use client";
 
-import { FormEvent, useState, useEffect } from "react";
+import { useState, useEffect, FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
+  ShieldCheck,
+  Building2,
+  FileCheck2,
+  Search,
   ArrowRight,
-  Check,
+  CheckCircle2,
+  Lock,
+  Zap,
   Eye,
   EyeOff,
-  LockKeyhole,
-  ShieldCheck,
-  Sparkles,
-  UserRound,
+  HelpCircle,
+  Mail,
+  ChevronDown,
+  Copy,
+  Check,
+  Shield,
+  Activity,
+  ArrowUpRight,
+  UserPlus,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { getApiBaseUrl } from "@/lib/api";
+import { getApiBaseUrl, formatApiError } from "@/lib/api";
 
 function BrandMark() {
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
+    <div className="flex items-center gap-2.5">
+      <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/20">
         <ShieldCheck className="size-5" strokeWidth={2.2} />
       </div>
       <div>
-        <p className="text-sm font-bold tracking-tight text-primary-foreground">
-          Northstar
-        </p>
-        <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-primary-foreground/55">
-          Compliance
-        </p>
+        <p className="text-sm font-bold tracking-tight text-foreground">Northstar</p>
+        <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground">Compliance</p>
       </div>
     </div>
   );
 }
 
-function RoleOption({
-  selected,
-  title,
-  description,
-  onClick,
-}: {
-  selected: boolean;
-  title: string;
-  description: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex flex-1 items-start gap-3 rounded-xl border p-3 text-left transition ${selected ? "border-primary bg-primary/[0.06] shadow-sm" : "border-border bg-card hover:border-primary/40"}`}
-      aria-pressed={selected}
-    >
-      <span
-        className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border ${selected ? "border-primary bg-primary" : "border-input"}`}
-      >
-        {selected && (
-          <Check className="size-2.5 text-primary-foreground" strokeWidth={3} />
-        )}
-      </span>
-      <span>
-        <span className="block text-xs font-semibold text-foreground">
-          {title}
-        </span>
-        <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
-          {description}
-        </span>
-      </span>
-    </button>
-  );
+function getPasswordStrength(pass: string): { score: number; label: string; color: string } {
+  if (!pass) return { score: 0, label: "", color: "bg-muted" };
+  let score = 0;
+  if (pass.length >= 8) score++;
+  if (/[A-Z]/.test(pass)) score++;
+  if (/[a-z]/.test(pass)) score++;
+  if (/[0-9]/.test(pass)) score++;
+  if (/[^A-Za-z0-9]/.test(pass)) score++;
+
+  if (score <= 2) return { score, label: "Weak", color: "bg-destructive" };
+  if (score <= 4) return { score, label: "Moderate", color: "bg-amber-500" };
+  return { score: 5, label: "Strong", color: "bg-emerald-500" };
 }
 
-interface ActiveSession {
-  name: string;
-  email: string;
-  role: string;
-  slug: string;
-}
-
-export default function Page() {
+export default function LandingPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<"login" | "signup">("login");
-  const [role, setRole] = useState<"Financial Advisor" | "Compliance Officer">(
-    "Financial Advisor",
-  );
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [activeSession, setActiveSession] = useState<ActiveSession | null>(
-    null,
-  );
-  const [toast, setToast] = useState("");
+
+  // Remembered session state
+  const [detectedSlug, setDetectedSlug] = useState<string | null>(null);
+  const [detectedWorkspaceName, setDetectedWorkspaceName] = useState<string | null>(null);
+
+  // Active tab in hero workspace hub: 'create' | 'lookup'
+  const [activeTab, setActiveTab] = useState<"create" | "lookup">("create");
+
+  // Create Workspace Form State
+  const [createWsName, setCreateWsName] = useState("");
+  const [createAdminName, setCreateAdminName] = useState("");
+  const [createAdminEmail, setCreateAdminEmail] = useState("");
+  const [createPassword, setCreatePassword] = useState("");
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [showCreatePass, setShowCreatePass] = useState(false);
+
+  // Email workspace detection State
+  const [lookupEmail, setLookupEmail] = useState("");
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupResult, setLookupResult] = useState<{
+    found: boolean;
+    workspaces?: { name: string; slug: string; role: string }[];
+    invitation?: { workspace_name: string; role: string; token: string };
+    message?: string;
+  } | null>(null);
+
+  // FAQ Interactive Accordion State
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
+
+  // Copy support email feedback
+  const [copiedEmail, setCopiedEmail] = useState(false);
 
   useEffect(() => {
-    async function checkExistingSession() {
-      const token = localStorage.getItem("auth_token");
-      if (!token) {
-        setActiveSession(null);
-        return;
-      }
-
-      try {
-        const res = await fetch(`${getApiBaseUrl()}/auth/me`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (data.role) localStorage.setItem("user_role", data.role);
-          if (data.slug) localStorage.setItem("user_slug", data.slug);
-          setActiveSession(data);
-        } else {
-          // Token expired or invalid
-          localStorage.removeItem("auth_token");
-          localStorage.removeItem("user_role");
-          localStorage.removeItem("user_slug");
-          setActiveSession(null);
-        }
-      } catch (err) {
-        console.error("Session check error", err);
-      }
+    const savedSlug = localStorage.getItem("last_workspace_slug");
+    const savedName = localStorage.getItem("workspace_name");
+    if (savedSlug) {
+      setDetectedSlug(savedSlug);
+      setDetectedWorkspaceName(savedName || (savedSlug === "northstar" ? "Northstar Compliance" : savedSlug));
     }
 
-    checkExistingSession();
+    const token = localStorage.getItem("auth_token");
+    if (token) {
+      fetch(`${getApiBaseUrl()}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && data.workspace_slug) {
+            setDetectedSlug(data.workspace_slug);
+            setDetectedWorkspaceName(data.workspace_name || data.workspace_slug);
+          }
+        })
+        .catch(() => {});
+    }
   }, []);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (loading) return;
-    setLoading(true);
-    setToast("");
+  function scrollToSection(id: string) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
 
-    // Grab the values from the form
-    const formData = new FormData(event.currentTarget);
-    const email = formData.get("email");
-    const password = formData.get("password");
-    const name = formData.get("name") || "New User"; // Only used for signup
+  function handleCopyEmail() {
+    navigator.clipboard.writeText("compliance-support@northstar.internal");
+    setCopiedEmail(true);
+    setTimeout(() => setCopiedEmail(false), 2500);
+  }
+
+  async function handleLookupWorkspace(e: FormEvent) {
+    e.preventDefault();
+    if (!lookupEmail.trim() || lookupLoading) return;
+    setLookupLoading(true);
+    setLookupResult(null);
 
     try {
-      // Decision for /login or /signup
-      const endpoint = mode === "login" ? "/auth/login" : "/auth/signup";
+      const res = await fetch(`${getApiBaseUrl()}/auth/lookup-workspaces`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: lookupEmail.trim() }),
+      });
+      const data = await res.json();
+      setLookupResult(data);
+    } catch {
+      setLookupResult({
+        found: false,
+        message: "Unable to connect to discovery service. Please verify your connection.",
+      });
+    } finally {
+      setLookupLoading(false);
+    }
+  }
 
-      // Send the request to FastAPI backend
-      const response = await fetch(`${getApiBaseUrl()}${endpoint}`, {
+  async function handleCreateWorkspace(e: FormEvent) {
+    e.preventDefault();
+    setCreateLoading(true);
+    setCreateError(null);
+
+    // Client-side password policy validation
+    if (createPassword.length < 8) {
+      setCreateError("Password must be at least 8 characters long.");
+      setCreateLoading(false);
+      return;
+    }
+    if (!/[A-Z]/.test(createPassword)) {
+      setCreateError("Password must contain at least one uppercase letter (A-Z).");
+      setCreateLoading(false);
+      return;
+    }
+    if (!/[a-z]/.test(createPassword)) {
+      setCreateError("Password must contain at least one lowercase letter (a-z).");
+      setCreateLoading(false);
+      return;
+    }
+    if (!/\d/.test(createPassword)) {
+      setCreateError("Password must contain at least one number (0-9).");
+      setCreateLoading(false);
+      return;
+    }
+    if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?/~`]/.test(createPassword)) {
+      setCreateError("Password must contain at least one special symbol (!@#$%^&*...).");
+      setCreateLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/auth/workspaces`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email,
-          password,
-          name,
-          role: role === "Financial Advisor" ? "advisor" : "officer",
+          workspace_name: createWsName.trim(),
+          workspace_slug: null,
+          admin_name: createAdminName.trim(),
+          admin_email: createAdminEmail.trim().toLowerCase(),
+          admin_password: createPassword,
         }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.detail || "Authentication failed");
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(formatApiError(data.detail, "Failed to create workspace."));
       }
 
-      // Save security token and profile metadata in browser
       localStorage.setItem("auth_token", data.token);
-      if (data.role) {
-        localStorage.setItem("user_role", data.role);
-      }
-      if (data.slug) {
-        localStorage.setItem("user_slug", data.slug);
-      }
+      localStorage.setItem("user_role", data.role);
+      localStorage.setItem("user_slug", data.slug);
+      localStorage.setItem("last_workspace_slug", data.workspace_slug);
+      localStorage.setItem("workspace_name", data.workspace_name);
+      localStorage.setItem("is_admin", "true");
+      sessionStorage.setItem("admin_authenticated", "true");
 
-      // Securely route to the personalized workspace dashboard
-      const targetSlug = data.slug || "workspace";
-      if (data.role === "advisor") {
-        router.push(`/advisor/${targetSlug}`);
-      } else {
-        router.push(`/compliance-officer/${targetSlug}`);
-      }
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "An error occurred during authentication";
-      setToast(message);
+      router.push("/admin");
+    } catch (err: any) {
+      setCreateError(err instanceof Error ? err.message : formatApiError(err, "Failed to create workspace."));
     } finally {
-      setLoading(false);
+      setCreateLoading(false);
     }
   }
 
-  return (
-    <main className="flex min-h-screen bg-background lg:h-screen">
-      <section className="relative hidden min-h-screen flex-1 overflow-hidden bg-primary p-8 text-primary-foreground lg:flex lg:flex-col lg:justify-between xl:p-12">
-        <div className="hero-grid pointer-events-none absolute inset-0 opacity-25" />
-        <div className="hero-orbit pointer-events-none absolute -right-20 top-1/4 size-96 rounded-full border border-primary-foreground/10" />
-        <div className="hero-orbit hero-orbit-delay pointer-events-none absolute -right-4 top-[32%] size-64 rounded-full border border-primary-foreground/10" />
-        <div className="relative">
-          <BrandMark />
-        </div>
-        <div className="relative max-w-xl pb-8 xl:pb-16">
-          <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-primary-foreground/15 bg-primary-foreground/[0.07] px-3 py-1.5 text-[11px] font-medium text-primary-foreground/75">
-            <Sparkles className="size-3.5" />
-            Intelligent review, built for trust
-          </div>
-          <h1 className="max-w-lg text-balance text-5xl font-semibold leading-[1.08] tracking-[-0.04em] xl:text-6xl">
-            Secure compliance review,{" "}
-            <span className="text-primary-foreground/55">
-              without the blind spots.
-            </span>
-          </h1>
-          <p className="mt-7 max-w-md text-sm leading-7 text-primary-foreground/65">
-            Northstar helps financial teams review documents with clarity,
-            consistency, and an audit trail you can stand behind.
-          </p>
-          <div className="mt-10 flex items-center gap-6 text-xs text-primary-foreground/60">
-            <span className="flex items-center gap-2">
-              <Check className="size-3.5 text-primary-foreground/80" />
-              AI-assisted findings
-            </span>
-            <span className="flex items-center gap-2">
-              <Check className="size-3.5 text-primary-foreground/80" />
-              Decision-ready records
-            </span>
-          </div>
-        </div>
-        <p className="relative text-[11px] text-primary-foreground/40">
-          © 2024 Northstar Compliance Systems
-        </p>
-      </section>
+  const passStrength = getPasswordStrength(createPassword);
 
-      <section className="flex w-full items-center justify-center bg-muted/40 px-5 py-10 sm:px-8 lg:w-[48%] lg:min-w-[530px] xl:w-[46%]">
-        <div className="w-full max-w-[430px]">
-          <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <BrandMark />
+  return (
+    <div className="min-h-screen bg-background text-foreground flex flex-col selection:bg-primary/20 relative overflow-x-hidden">
+      {/* Institutional dot grid with soft radial vignette */}
+      <div className="pointer-events-none absolute inset-0 bg-grid-pattern [mask-image:radial-gradient(ellipse_75%_65%_at_50%_35%,#000_50%,transparent_100%)] -z-10" />
+
+      {/* Top Navigation */}
+      <header className="sticky top-0 z-40 border-b border-border/80 bg-background/80 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+          <BrandMark />
+
+          <nav className="hidden md:flex items-center gap-7 text-xs font-semibold text-muted-foreground">
+            <button
+              onClick={() => scrollToSection("features")}
+              className="transition hover:text-foreground cursor-pointer"
+            >
+              Capabilities
+            </button>
+            <button
+              onClick={() => scrollToSection("architecture")}
+              className="transition hover:text-foreground cursor-pointer"
+            >
+              Zero-Trust Architecture
+            </button>
+            <button
+              onClick={() => scrollToSection("support")}
+              className="transition hover:text-foreground cursor-pointer"
+            >
+              Support & FAQ
+            </button>
+          </nav>
+
+          <div className="flex items-center gap-3">
+            <Link
+              href={detectedSlug ? `/login?workspace=${detectedSlug}` : "/login"}
+              className="rounded-xl border border-border px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-muted transition active:scale-95"
+            >
+              Sign In
+            </Link>
+            <button
+              onClick={() => {
+                setActiveTab("create");
+                scrollToSection("workspace-hub");
+              }}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 transition active:scale-95 cursor-pointer"
+            >
+              <Building2 className="size-3.5" />
+              <span>Create Workspace</span>
+            </button>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-6 shadow-xl shadow-primary/[0.04] sm:p-9">
-            <div className="mb-7">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-                Welcome to Northstar
+        </div>
+      </header>
+
+      {/* Hero Section with Isolated Stacking Context & Transparent Blue Circles */}
+      <section className="relative isolate overflow-hidden pt-12 pb-20 sm:pt-16 sm:pb-24 border-b border-border/40">
+        {/* Aesthetic Transparent Blue Geometric Circles in Hero (Vividly visible, perfectly matching brand palette) */}
+        <div className="pointer-events-none absolute -top-16 left-1/2 -translate-x-1/2 size-[650px] sm:size-[820px] lg:size-[980px] select-none -z-10 flex items-center justify-center">
+          {/* Ambient soft radiant outer glow */}
+          <div className="absolute inset-0 rounded-full bg-blue-500/15 blur-[100px] animate-pulse-glow" />
+          
+          {/* Primary transparent blue circle disk with visible border */}
+          <div className="absolute inset-8 sm:inset-12 rounded-full border-2 border-blue-500/40 bg-gradient-to-br from-blue-500/20 via-blue-600/10 to-transparent shadow-[0_0_120px_rgba(37,99,235,0.22)] animate-float-slow" />
+          
+          {/* Nested concentric precision ring */}
+          <div className="absolute size-[72%] rounded-full border border-blue-400/35 bg-blue-500/[0.05]" />
+          
+          {/* Inner core circle */}
+          <div className="absolute size-[46%] rounded-full border border-primary/30 bg-primary/[0.03]" />
+        </div>
+
+        {/* Accent floating transparent blue circle behind headline */}
+        <div className="pointer-events-none absolute top-12 -left-20 size-[380px] sm:size-[480px] select-none -z-10 flex items-center justify-center">
+          <div className="absolute inset-0 rounded-full border border-blue-500/30 bg-gradient-to-tr from-sky-500/15 via-blue-500/10 to-transparent shadow-[0_0_80px_rgba(59,130,246,0.18)] animate-float-reverse" />
+          <div className="absolute size-[70%] rounded-full border border-blue-400/25" />
+        </div>
+
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-14 items-start">
+            {/* Left Headline Column */}
+            <div className="lg:col-span-6 space-y-6 pt-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-semibold text-primary">
+                <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+                SEC Rule 206(4)-1 & FINRA 2210 Heuristics
+              </div>
+
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground leading-[1.08]">
+                Institutional compliance review, complete audit assurance.
+              </h1>
+
+              <p className="text-sm sm:text-base text-foreground/85 dark:text-foreground/90 font-normal leading-relaxed max-w-xl">
+                Northstar enables financial teams to review client materials with machine-verified precision, strict role governance, and real-time concurrency locks built for regulatory scrutiny.
               </p>
-              <h2 className="mt-3 text-2xl font-semibold tracking-tight">
-                {mode === "login"
-                  ? "Sign in to your workspace"
-                  : "Create your workspace account"}
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                {mode === "login"
-                  ? "Continue your secure review workflow."
-                  : "Start reviewing with confidence today."}
-              </p>
+
+              {/* Workspace Auto-Detection Callout */}
+              {detectedSlug && (
+                <div className="rounded-2xl border border-primary/30 bg-primary/[0.06] dark:bg-primary/10 backdrop-blur-sm p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shrink-0 shadow-sm">
+                      <Building2 className="size-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-primary dark:text-sky-400 uppercase tracking-wider">Active Workspace Detected</p>
+                      <p className="text-base font-extrabold text-foreground truncate">{detectedWorkspaceName}</p>
+                    </div>
+                  </div>
+                  <Link
+                    href={`/login?workspace=${detectedSlug}`}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition shrink-0 active:scale-95"
+                  >
+                    <span>Enter Workspace</span>
+                    <ArrowRight className="size-3.5" />
+                  </Link>
+                </div>
+              )}
+
+              {/* Confidence Points with Crisp High-Contrast Typography */}
+              <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-medium text-foreground/90 dark:text-foreground/95">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
+                  <span>Single-use cryptographic invitations</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
+                  <span>No unverified officer self-signups</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
+                  <span>Live SSE document conflict prevention</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
+                  <span>Immutable audit log for inspections</span>
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="pt-3 flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => {
+                    setActiveTab("create");
+                    scrollToSection("workspace-hub");
+                  }}
+                  className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-xs font-semibold text-primary-foreground shadow-md shadow-primary/20 hover:bg-primary/90 transition active:scale-95 cursor-pointer"
+                >
+                  <Building2 className="size-4" />
+                  <span>Create Your Workspace</span>
+                </button>
+                <button
+                  onClick={() => scrollToSection("features")}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-border px-4 py-2.5 text-xs font-semibold text-foreground hover:bg-muted transition active:scale-95 cursor-pointer"
+                >
+                  <span>Explore Capabilities</span>
+                  <ChevronDown className="size-3.5" />
+                </button>
+              </div>
             </div>
 
-            {activeSession && (
-              <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
-                <div className="flex items-center justify-between">
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
-                    <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Active Session
-                  </span>
+            {/* Right Column: First-Time User Interactive Workspace Hub */}
+            <div id="workspace-hub" className="lg:col-span-6 scroll-mt-24">
+              <div className="rounded-3xl border border-border/80 bg-card/85 backdrop-blur-xl p-6 sm:p-7 shadow-xl shadow-primary/[0.04] transition-all">
+                {/* Segmented Tab Switcher */}
+                <div className="grid grid-cols-2 gap-1 rounded-2xl border border-border bg-muted/40 p-1 mb-6">
                   <button
                     type="button"
-                    onClick={() => {
-                      localStorage.removeItem("auth_token");
-                      localStorage.removeItem("user_role");
-                      localStorage.removeItem("user_slug");
-                      setActiveSession(null);
-                      setToast("Signed out successfully");
-                    }}
-                    className="text-xs font-semibold text-destructive hover:underline"
+                    onClick={() => setActiveTab("create")}
+                    className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-xl transition-all ${
+                      activeTab === "create"
+                        ? "bg-card text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
                   >
-                    Sign Out
+                    <UserPlus className="size-3.5" />
+                    <span>Create Workspace</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("lookup")}
+                    className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-xl transition-all ${
+                      activeTab === "lookup"
+                        ? "bg-card text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Search className="size-3.5" />
+                    <span>Find My Team</span>
                   </button>
                 </div>
-                <p className="mt-2 text-sm font-semibold text-foreground">
-                  Signed in as {activeSession.name}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {activeSession.role === "officer"
-                    ? "Compliance Officer"
-                    : "Financial Advisor"}{" "}
-                  ({activeSession.email})
-                </p>
+
+                {activeTab === "create" ? (
+                  /* 1. Create Workspace Onboarding Form */
+                  <div className="space-y-4">
+                    <div>
+                      <h2 className="text-base font-bold tracking-tight text-foreground">
+                        Register Organization Workspace
+                      </h2>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Set up an isolated regulatory domain for your firm and assign your master administrator.
+                      </p>
+                    </div>
+
+                    {createError && (
+                      <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive font-medium flex items-center justify-between">
+                        <span>{createError}</span>
+                        <button
+                          type="button"
+                          onClick={() => setCreateError(null)}
+                          className="font-bold opacity-70 hover:opacity-100 ml-2"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+
+                    <form onSubmit={handleCreateWorkspace} className="space-y-3 text-xs">
+                      <div>
+                        <label className="block font-semibold text-foreground mb-1">
+                          Firm / Organization Name
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={createWsName}
+                          onChange={(e) => setCreateWsName(e.target.value)}
+                          placeholder="e.g. Apex Wealth Partners"
+                          className="w-full rounded-xl border border-input bg-background/80 px-3 py-2 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
+                        />
+                        <p className="mt-1 text-[11px] text-muted-foreground flex items-center gap-1.5">
+                          <ShieldCheck className="size-3 text-primary shrink-0" />
+                          <span>Organization identifier will be generated server-side upon registration.</span>
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block font-semibold text-foreground mb-1">
+                            Administrator Name
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={createAdminName}
+                            onChange={(e) => setCreateAdminName(e.target.value)}
+                            placeholder="Alex Morgan, CCO"
+                            className="w-full rounded-xl border border-input bg-background/80 px-3 py-2 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block font-semibold text-foreground mb-1">
+                            Corporate Work Email
+                          </label>
+                          <input
+                            type="email"
+                            required
+                            value={createAdminEmail}
+                            onChange={(e) => setCreateAdminEmail(e.target.value)}
+                            placeholder="alex@apexwealth.com"
+                            className="w-full rounded-xl border border-input bg-background/80 px-3 py-2 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block font-semibold text-foreground">
+                            Master Password
+                          </label>
+                          {createPassword && (
+                            <span className={`text-[10px] font-semibold ${
+                              passStrength.label === "Strong"
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : passStrength.label === "Moderate"
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-destructive"
+                            }`}>
+                              {passStrength.label}
+                            </span>
+                          )}
+                        </div>
+                        <div className="relative">
+                          <input
+                            type={showCreatePass ? "text" : "password"}
+                            required
+                            value={createPassword}
+                            onChange={(e) => setCreatePassword(e.target.value)}
+                            placeholder="Min 8 chars, uppercase, lowercase, number, symbol"
+                            className="w-full rounded-xl border border-input bg-background/80 px-3 py-2 pr-9 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowCreatePass(!showCreatePass)}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          >
+                            {showCreatePass ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                          </button>
+                        </div>
+
+                        {createPassword && (
+                          <div className="mt-2 flex gap-1 h-1">
+                            {[1, 2, 3, 4, 5].map((level) => (
+                              <div
+                                key={level}
+                                className={`flex-1 rounded-full transition-all ${
+                                  level <= passStrength.score ? passStrength.color : "bg-muted"
+                                }`}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-2">
+                        <button
+                          type="submit"
+                          disabled={createLoading}
+                          className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-md shadow-primary/20 hover:bg-primary/90 transition active:scale-[0.99] disabled:opacity-50 cursor-pointer"
+                        >
+                          {createLoading ? "Provisioning Organization..." : "Launch Organization Workspace →"}
+                        </button>
+                      </div>
+
+                      <p className="text-[11px] text-center text-muted-foreground pt-1">
+                        Already have a workspace?{" "}
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("lookup")}
+                          className="font-semibold text-primary hover:underline"
+                        >
+                          Find your team
+                        </button>{" "}
+                        or{" "}
+                        <Link href="/login" className="font-semibold text-primary hover:underline">
+                          Sign In
+                        </Link>
+                      </p>
+                    </form>
+                  </div>
+                ) : (
+                  /* 2. Find Existing Workspace Tab */
+                  <div className="space-y-4">
+                    <div>
+                      <h2 className="text-base font-bold tracking-tight text-foreground">
+                        Find Your Organization Workspace
+                      </h2>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Enter your work email to discover which workspace you belong to or accept a pending invitation.
+                      </p>
+                    </div>
+
+                    <form onSubmit={handleLookupWorkspace} className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-foreground mb-1">
+                          Corporate Work Email
+                        </label>
+                        <div className="relative">
+                          <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                          <input
+                            type="email"
+                            required
+                            value={lookupEmail}
+                            onChange={(e) => setLookupEmail(e.target.value)}
+                            placeholder="colleague@firm.com"
+                            className="w-full rounded-xl border border-input bg-background/80 pl-9 pr-3 py-2 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={lookupLoading || !lookupEmail.trim()}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-foreground text-background px-4 py-2.5 text-xs font-semibold hover:bg-foreground/90 transition active:scale-[0.99] disabled:opacity-50 cursor-pointer"
+                      >
+                        {lookupLoading ? "Searching Directory..." : "Discover My Workspace"}
+                        <Search className="size-3.5" />
+                      </button>
+                    </form>
+
+                    {lookupResult && (
+                      <div className="rounded-xl border border-border bg-muted/40 p-4 text-xs transition-all">
+                        {lookupResult.found ? (
+                          <div className="space-y-2.5">
+                            <p className="font-semibold text-emerald-600 dark:text-emerald-400">
+                              Workspace discovered:
+                            </p>
+                            {lookupResult.workspaces?.map((ws) => (
+                              <div key={ws.slug} className="flex items-center justify-between pt-1 border-t border-border/60">
+                                <div>
+                                  <span className="font-bold text-foreground block">{ws.name}</span>
+                                  <span className="text-[10px] text-muted-foreground uppercase">{ws.role}</span>
+                                </div>
+                                <Link
+                                  href={`/login?workspace=${ws.slug}`}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition"
+                                >
+                                  <span>Sign in</span>
+                                  <ArrowRight className="size-3" />
+                                </Link>
+                              </div>
+                            ))}
+                            {lookupResult.invitation && (
+                              <div className="flex items-center justify-between border-t border-border/60 pt-2.5">
+                                <div>
+                                  <span className="font-semibold text-foreground block">
+                                    {lookupResult.invitation.workspace_name}
+                                  </span>
+                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                                    Pending Invite: {lookupResult.invitation.role}
+                                  </span>
+                                </div>
+                                <Link
+                                  href={`/accept-invite?token=${lookupResult.invitation.token}`}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition"
+                                >
+                                  <span>Accept Invite</span>
+                                  <ArrowRight className="size-3" />
+                                </Link>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <p className="text-muted-foreground">
+                              {lookupResult.message || "No active workspace was found for this email address."}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setActiveTab("create")}
+                              className="text-primary hover:underline font-semibold"
+                            >
+                              Create a new organization workspace instead →
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      {/* Core Capabilities Section with Isolated Stacking Context & Transparent Blue Circle */}
+      <section id="features" className="relative isolate overflow-hidden py-20 sm:py-24 border-b border-border/40 scroll-mt-16">
+        {/* Mid-page Aesthetic Blue Transparent Geometric Circle */}
+        <div className="pointer-events-none absolute top-1/2 -translate-y-1/2 -right-28 size-[520px] sm:size-[650px] select-none -z-10 flex items-center justify-center">
+          <div className="absolute inset-0 rounded-full border border-blue-500/30 bg-gradient-to-bl from-blue-500/15 via-primary/[0.06] to-transparent shadow-[0_0_90px_rgba(37,99,235,0.18)] animate-float-slow" />
+          <div className="absolute size-[70%] rounded-full border border-blue-400/25" />
+          <div className="absolute size-[45%] rounded-full border border-primary/20" />
+        </div>
+
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-2xl mx-auto mb-14">
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1 text-xs font-semibold text-muted-foreground mb-3">
+              <Shield className="size-3.5 text-primary" />
+              Institutional Platform Pillars
+            </div>
+            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-foreground">
+              Engineered for Regulatory Assurance
+            </h2>
+            <p className="mt-2 text-xs sm:text-sm text-muted-foreground leading-relaxed">
+              Eliminate self-appointment vulnerabilities, audit blind spots, and review bottlenecks with purpose-built compliance workflows.
+            </p>
+          </div>
+
+          <div id="architecture" className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8 scroll-mt-20">
+            {/* Pillar 1 */}
+            <div className="group rounded-2xl border border-border/80 bg-card/70 backdrop-blur-md p-6 sm:p-7 shadow-sm hover:shadow-md hover:border-primary/40 transition-all duration-300">
+              <div className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary mb-5 group-hover:scale-110 transition-transform">
+                <FileCheck2 className="size-5" />
+              </div>
+              <h3 className="text-base font-bold text-foreground">Precision Rule Scanning</h3>
+              <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                Automated text heuristics cross-reference client communications against FINRA Rule 2210 and SEC Rule 206(4)-1 disclosure standards.
+              </p>
+              <div className="mt-5 pt-4 border-t border-border/60 flex items-center justify-between text-[11px]">
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">FINRA 2210 Heuristics</span>
                 <button
-                  type="button"
                   onClick={() => {
-                    const target = `/${activeSession.role === "officer" ? "compliance-officer" : "advisor"}/${activeSession.slug || "workspace"}`;
-                    router.push(target);
+                    setActiveTab("create");
+                    scrollToSection("workspace-hub");
                   }}
-                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                  className="font-semibold text-primary hover:underline inline-flex items-center gap-1 cursor-pointer"
                 >
-                  <span>
-                    Return to Workspace (/
-                    {activeSession.role === "officer"
-                      ? "compliance-officer"
-                      : "advisor"}
-                    /{activeSession.slug})
-                  </span>
-                  <ArrowRight className="size-3.5" />
+                  <span>Test in workspace</span>
+                  <ArrowUpRight className="size-3" />
                 </button>
-                <p className="mt-2 text-center text-[11px] text-muted-foreground">
-                  Or sign in to a different account below:
+              </div>
+            </div>
+
+            {/* Pillar 2 */}
+            <div className="group rounded-2xl border border-border/80 bg-card/70 backdrop-blur-md p-6 sm:p-7 shadow-sm hover:shadow-md hover:border-primary/40 transition-all duration-300">
+              <div className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary mb-5 group-hover:scale-110 transition-transform">
+                <Lock className="size-5" />
+              </div>
+              <h3 className="text-base font-bold text-foreground">Zero-Trust Role Governance</h3>
+              <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                Compliance Officer roles cannot be claimed publicly. Workspace administrators pre-assign locked roles via single-use 256-bit cryptographic invitation tokens.
+              </p>
+              <div className="mt-5 pt-4 border-t border-border/60 flex items-center justify-between text-[11px]">
+                <span className="font-semibold text-primary">Cryptographic Tokens</span>
+                <span className="font-medium text-muted-foreground">Admin Email Dispatch Only</span>
+              </div>
+            </div>
+
+            {/* Pillar 3 */}
+            <div className="group rounded-2xl border border-border/80 bg-card/70 backdrop-blur-md p-6 sm:p-7 shadow-sm hover:shadow-md hover:border-primary/40 transition-all duration-300">
+              <div className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary mb-5 group-hover:scale-110 transition-transform">
+                <Zap className="size-5" />
+              </div>
+              <h3 className="text-base font-bold text-foreground">Live Concurrency Locking</h3>
+              <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                Atomic database locking ensures two officers never review the same document simultaneously. Real-time SSE updates keep teams synchronized.
+              </p>
+              <div className="mt-5 pt-4 border-t border-border/60 flex items-center justify-between text-[11px]">
+                <span className="font-semibold text-amber-600 dark:text-amber-400">Atomic Review Locks</span>
+                <button
+                  onClick={() => scrollToSection("support")}
+                  className="font-semibold text-primary hover:underline inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Learn how it works</span>
+                  <ArrowUpRight className="size-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Support & Interactive FAQ Section with Isolated Stacking Context & Transparent Blue Circle */}
+      <section id="support" className="relative isolate overflow-hidden py-20 sm:py-24 border-b border-border/40 scroll-mt-16">
+        {/* Bottom-page Aesthetic Blue Transparent Geometric Circle */}
+        <div className="pointer-events-none absolute top-1/3 -left-28 size-[480px] sm:size-[600px] select-none -z-10 flex items-center justify-center">
+          <div className="absolute inset-0 rounded-full border border-blue-500/25 bg-gradient-to-tr from-blue-600/15 via-primary/[0.05] to-transparent shadow-[0_0_80px_rgba(37,99,235,0.15)] animate-float-reverse" />
+          <div className="absolute size-[70%] rounded-full border border-blue-400/20" />
+          <div className="absolute size-[45%] rounded-full border border-primary/20" />
+        </div>
+
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
+            {/* Left FAQ Column */}
+            <div className="lg:col-span-7 space-y-6">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1 text-xs font-semibold text-muted-foreground mb-3">
+                  <HelpCircle className="size-3.5 text-primary" />
+                  Frequently Asked Questions
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+                  Everything you need to know about Northstar Workspaces
+                </h2>
+                <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
+                  Common questions on multi-tenant isolation, administrator controls, and regulatory audit compliance.
                 </p>
               </div>
-            )}
 
-            <div
-              className="mb-7 flex rounded-lg bg-muted p-1"
-              role="tablist"
-              aria-label="Authentication mode"
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === "login"}
-                onClick={() => {
-                  setMode("login");
-                  setToast("");
-                }}
-                className={`flex-1 rounded-md py-2 text-xs font-semibold transition ${mode === "login" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                Log In
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === "signup"}
-                onClick={() => {
-                  setMode("signup");
-                  setToast("");
-                }}
-                className={`flex-1 rounded-md py-2 text-xs font-semibold transition ${mode === "signup" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                Sign Up
-              </button>
+              {/* Accordion List */}
+              <div className="space-y-3">
+                {[
+                  {
+                    q: "How do organization workspaces isolate firm data?",
+                    a: "Every workspace is tenant-partitioned with its own distinct organization slug and database keys. Financial Advisors and Compliance Officers can only view and process submissions belonging to their authorized organization.",
+                  },
+                  {
+                    q: "Can Compliance Officers self-register without an administrator invitation?",
+                    a: "No. To prevent unverified self-appointment vulnerabilities, Compliance Officers cannot self-register. Only authorized workspace administrators can issue cryptographic single-use invitation tokens with pre-locked roles.",
+                  },
+                  {
+                    q: "How does the real-time concurrency locking prevent review conflicts?",
+                    a: "When a compliance officer begins reviewing a client submission, an atomic database claim lock is applied with a 30-minute idle TTL. All other officers in the workspace receive a live SSE event displaying the document as 'In Review by Alex', preventing duplicate reviews.",
+                  },
+                  {
+                    q: "What happens when an employee departs the organization?",
+                    a: "Workspace Administrators can unassign departing employees directly from the Admin Console. The employee loses access immediately, while their historical submissions and approved review threads remain permanently preserved for regulatory inspections.",
+                  },
+                ].map((item, idx) => {
+                  const isOpen = openFaq === idx;
+                  return (
+                    <div
+                      key={idx}
+                      className="rounded-2xl border border-border/80 bg-card/70 backdrop-blur-sm overflow-hidden transition-all"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setOpenFaq(isOpen ? null : idx)}
+                        className="w-full flex items-center justify-between p-4 sm:p-5 text-left text-xs sm:text-sm font-bold text-foreground hover:bg-muted/40 transition cursor-pointer"
+                      >
+                        <span>{item.q}</span>
+                        <ChevronDown
+                          className={`size-4 text-muted-foreground transition-transform duration-200 shrink-0 ml-3 ${
+                            isOpen ? "rotate-180 text-primary" : ""
+                          }`}
+                        />
+                      </button>
+                      {isOpen && (
+                        <div className="px-4 pb-4 sm:px-5 sm:pb-5 text-xs text-muted-foreground leading-relaxed border-t border-border/60 pt-3">
+                          {item.a}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-            <form
-              onSubmit={handleSubmit}
-              className="auth-form flex flex-col gap-5"
-              key={mode}
-            >
-              {mode === "signup" && (
-                <label className="flex flex-col gap-2 text-xs font-semibold">
-                  Full name
-                  <input
-                    required
-                    name="name"
-                    type="text"
-                    placeholder="Jordan Davis"
-                    className="h-11 rounded-lg border border-input bg-background px-3 text-sm font-normal outline-none transition placeholder:text-muted-foreground/60 focus:border-primary focus:ring-2 focus:ring-primary/10"
-                  />
-                </label>
-              )}
-              <label className="flex flex-col gap-2 text-xs font-semibold">
-                Email address
-                <input
-                  required
-                  name="email"
-                  type="email"
-                  placeholder="you@company.com"
-                  className="h-11 rounded-lg border border-input bg-background px-3 text-sm font-normal outline-none transition placeholder:text-muted-foreground/60 focus:border-primary focus:ring-2 focus:ring-primary/10"
-                />
-              </label>
-              <label className="flex flex-col gap-2 text-xs font-semibold">
-                Password
-                <div className="relative">
-                  <input
-                    required
-                    name="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Enter your password"
-                    className="h-11 w-full rounded-lg border border-input bg-background px-3 pr-10 text-sm font-normal outline-none transition placeholder:text-muted-foreground/60 focus:border-primary focus:ring-2 focus:ring-primary/10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
-                    aria-label={
-                      showPassword ? "Hide password" : "Show password"
-                    }
-                  >
-                    {showPassword ? (
-                      <EyeOff className="size-4" />
-                    ) : (
-                      <Eye className="size-4" />
-                    )}
-                  </button>
-                </div>
-              </label>
-              {mode === "login" && (
-                <div className="-mt-2 flex justify-end">
-                  <button
-                    type="button"
-                    className="text-xs font-semibold text-primary hover:underline"
-                  >
-                    Forgot password?
-                  </button>
-                </div>
-              )}
-              {mode === "signup" && (
-                <fieldset className="flex flex-col gap-2">
-                  <legend className="text-xs font-semibold">Your role</legend>
-                  <div className="flex gap-2">
-                    <RoleOption
-                      selected={role === "Financial Advisor"}
-                      title="Financial Advisor"
-                      description="Manage client materials"
-                      onClick={() => setRole("Financial Advisor")}
-                    />
-                    <RoleOption
-                      selected={role === "Compliance Officer"}
-                      title="Compliance Officer"
-                      description="Review and approve"
-                      onClick={() => setRole("Compliance Officer")}
-                    />
+
+            {/* Right Support Desk Card */}
+            <div className="lg:col-span-5">
+              <div className="rounded-3xl border border-border/80 bg-card/85 backdrop-blur-xl p-6 sm:p-8 shadow-xl space-y-6">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary shrink-0">
+                    <Building2 className="size-5" />
                   </div>
-                </fieldset>
-              )}
-              <button
-                disabled={loading}
-                type="submit"
-                className="mt-1 flex h-11 items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground shadow-md shadow-primary/15 transition hover:bg-primary/90 disabled:cursor-wait disabled:opacity-80"
-              >
-                {loading ? (
-                  <span className="size-4 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
-                ) : (
-                  <>
-                    {mode === "login" ? "Sign In" : "Create Account"}
-                    <ArrowRight className="size-4" />
-                  </>
-                )}
-              </button>
-            </form>
-            <div className="mt-7 flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
-              <LockKeyhole className="size-3.5" />
-              Your data is encrypted and protected
+                  <div>
+                    <h3 className="text-base font-bold text-foreground">Compliance Desk Support</h3>
+                    <p className="text-xs text-muted-foreground">Dedicated technical assistance</p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Need assistance migrating custom compliance rulebooks, configuring firm disclosure requirements, or integrating automated archives?
+                </p>
+
+                {/* Copy Support Contact Action */}
+                <div className="rounded-2xl border border-border bg-muted/40 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-foreground">Official Support Channel</span>
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">Verified Active</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 rounded-xl border border-input bg-background/90 px-3 py-2 text-xs">
+                    <span className="font-mono text-muted-foreground truncate">compliance-support@northstar.internal</span>
+                    <button
+                      type="button"
+                      onClick={handleCopyEmail}
+                      className="inline-flex items-center gap-1 text-primary hover:text-primary/80 font-semibold shrink-0 cursor-pointer"
+                      title="Copy support email address"
+                    >
+                      {copiedEmail ? (
+                        <>
+                          <Check className="size-3.5 text-emerald-500" />
+                          <span className="text-emerald-600 dark:text-emerald-400">Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="size-3.5" />
+                          <span>Copy</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2.5 pt-1">
+                  <button
+                    onClick={() => {
+                      setActiveTab("create");
+                      scrollToSection("workspace-hub");
+                    }}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition active:scale-95 cursor-pointer"
+                  >
+                    <span>Create Organization Workspace</span>
+                    <ArrowRight className="size-3.5" />
+                  </button>
+                  <Link
+                    href="/login"
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-2.5 text-xs font-semibold text-foreground hover:bg-muted transition active:scale-95"
+                  >
+                    <span>Sign In to Existing Workspace</span>
+                  </Link>
+                </div>
+
+                <div className="pt-2 border-t border-border/70 flex items-center justify-between text-[11px] text-muted-foreground">
+                  <span className="inline-flex items-center gap-1.5 font-medium">
+                    <Activity className="size-3 text-emerald-500" /> All Systems Operational
+                  </span>
+                  <span>PostgreSQL &bull; Redis &bull; MinIO</span>
+                </div>
+              </div>
             </div>
           </div>
-          <p className="mt-6 text-center text-xs text-muted-foreground">
-            Need help?{" "}
-            <button className="font-semibold text-primary hover:underline">
-              Contact support
-            </button>
-          </p>
         </div>
       </section>
-      {toast && (
-        <div
-          role="status"
-          className="fixed bottom-5 right-5 flex items-center gap-3 rounded-xl border border-primary/15 bg-card px-4 py-3 text-sm font-medium text-foreground shadow-xl"
-        >
-          <span className="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground">
-            <UserRound className="size-3.5" />
-          </span>
-          {toast}
+
+      {/* Clean Institutional Footer */}
+      <footer className="mt-auto border-t border-border/80 bg-card/40 backdrop-blur-md py-8 text-xs text-muted-foreground">
+        <div className="mx-auto flex max-w-7xl flex-col sm:flex-row items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-3">
+            <BrandMark />
+            <span className="text-[11px] text-muted-foreground">
+              &copy; {new Date().getFullYear()} Northstar Compliance Systems. Enterprise Edition.
+            </span>
+          </div>
+          <div className="flex items-center gap-5 font-medium">
+            <button
+              onClick={() => {
+                setActiveTab("create");
+                scrollToSection("workspace-hub");
+              }}
+              className="hover:text-foreground cursor-pointer transition"
+            >
+              Create Workspace
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab("lookup");
+                scrollToSection("workspace-hub");
+              }}
+              className="hover:text-foreground cursor-pointer transition"
+            >
+              Find Team
+            </button>
+            <Link href="/login" className="hover:text-foreground transition">
+              Sign In
+            </Link>
+            <button
+              onClick={handleCopyEmail}
+              className="hover:text-foreground cursor-pointer transition"
+            >
+              Support
+            </button>
+          </div>
         </div>
-      )}
-    </main>
+      </footer>
+    </div>
   );
 }
 
-declare global {
-  interface Window {
-    setTimeout: typeof setTimeout;
-  }
-}

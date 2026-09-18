@@ -54,6 +54,7 @@ services:
       PUBLIC_STORAGE_URL: ${PUBLIC_STORAGE_URL:-http://localhost:9000}
     ports:
       - "8000:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./backend:/app
     depends_on:

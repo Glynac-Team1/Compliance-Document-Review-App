@@ -97,9 +97,14 @@ async def upload_document(
     if not thread_root_id:
         thread_root_id = new_doc_id
 
+    advisor = await db.scalar(select(User).where(User.id == advisor_id))
+    advisor_name = advisor.name if advisor else "An advisor"
+    advisor_workspace_id = advisor.workspace_id if advisor else None
+
     new_document = Document(
         id=new_doc_id,
         advisor_id=advisor_id,
+        workspace_id=advisor_workspace_id,
         status=DocumentStatus.pending,
         original_filename=file.filename,
         file_reference=file_reference,
@@ -118,10 +123,11 @@ async def upload_document(
     ))
     db.add(AIAnalysis(document_id=new_document.id, status=AnalysisStatus.pending))
 
-    # Notify all compliance officers of new submission or revision
-    advisor = await db.scalar(select(User).where(User.id == advisor_id))
-    advisor_name = advisor.name if advisor else "An advisor"
-    officers = (await db.execute(select(User).where(User.role == Role.officer))).scalars().all()
+    # Notify only compliance officers of the same workspace
+    officers_query = select(User).where(User.role == Role.officer)
+    if advisor_workspace_id:
+        officers_query = officers_query.where(User.workspace_id == advisor_workspace_id)
+    officers = (await db.execute(officers_query)).scalars().all()
     upload_msg = (
         f"{advisor_name} submitted a new revision for '{new_document.original_filename}'."
         if previous_version_id
@@ -180,6 +186,11 @@ async def claim_document(
     doc = await db.scalar(select(Document).where(Document.id == document_id))
     if doc is None:
         raise HTTPException(404, "Document not found")
+
+    if doc.workspace_id:
+        officer = await db.scalar(select(User).where(User.id == officer_id))
+        if officer and officer.workspace_id and officer.workspace_id != doc.workspace_id:
+            raise HTTPException(403, "Access denied. Document belongs to another workspace.")
 
     now = datetime.now(timezone.utc)
 
@@ -278,6 +289,11 @@ async def release_document(
     if doc is None:
         raise HTTPException(404, "Document not found")
 
+    if doc.workspace_id:
+        officer = await db.scalar(select(User).where(User.id == officer_id))
+        if officer and officer.workspace_id and officer.workspace_id != doc.workspace_id:
+            raise HTTPException(403, "Access denied. Document belongs to another workspace.")
+
     if doc.locked_by_officer_id is None:
         return {
             "document_id": str(doc.id),
@@ -322,6 +338,11 @@ async def heartbeat_document(
     if doc is None:
         raise HTTPException(404, "Document not found")
 
+    if doc.workspace_id:
+        officer = await db.scalar(select(User).where(User.id == officer_id))
+        if officer and officer.workspace_id and officer.workspace_id != doc.workspace_id:
+            raise HTTPException(403, "Access denied. Document belongs to another workspace.")
+
     if doc.locked_by_officer_id != officer_id:
         raise HTTPException(409, "Document lock is not held by you")
 
@@ -339,9 +360,19 @@ async def heartbeat_document(
 @router.get("/{document_id}/analysis")
 async def get_analysis(
     document_id: uuid.UUID,
-    _: dict = Depends(require_role(Role.officer)),
+    user_token: dict = Depends(require_role(Role.officer)),
     db: AsyncSession = Depends(get_db),
 ):
+    doc = await db.scalar(select(Document).where(Document.id == document_id))
+    if doc is None:
+        raise HTTPException(404, "Document not found")
+
+    officer_id = uuid.UUID(user_token["sub"])
+    if doc.workspace_id:
+        officer = await db.scalar(select(User).where(User.id == officer_id))
+        if officer and officer.workspace_id and officer.workspace_id != doc.workspace_id:
+            raise HTTPException(403, "Access denied. Document belongs to another workspace.")
+
     analysis = await db.scalar(
         select(AIAnalysis).where(AIAnalysis.document_id == document_id)
     )
@@ -406,6 +437,11 @@ async def execute_officer_decision(
     doc = await db.scalar(select(Document).where(Document.id == document_id))
     if doc is None:
         raise HTTPException(404, "Document not found")
+
+    if doc.workspace_id:
+        officer = await db.scalar(select(User).where(User.id == officer_id))
+        if officer and officer.workspace_id and officer.workspace_id != doc.workspace_id:
+            raise HTTPException(403, "Access denied. Document belongs to another workspace.")
 
     # Enforce claim lock: if locked by another officer, reject with 409
     if doc.locked_by_officer_id is not None and doc.locked_by_officer_id != officer_id:
@@ -529,6 +565,12 @@ async def get_document_thread(
     if caller_role == Role.advisor.value and target_doc.advisor_id != caller_id:
         raise HTTPException(403, "Access denied to this document thread")
 
+    # Enforce workspace isolation if requester is an officer
+    if caller_role == Role.officer.value and target_doc.workspace_id:
+        caller = await db.scalar(select(User).where(User.id == caller_id))
+        if caller and caller.workspace_id and caller.workspace_id != target_doc.workspace_id:
+            raise HTTPException(403, "Access denied. Document belongs to another workspace.")
+
     root_id = target_doc.thread_root_id or target_doc.id
 
     # Retrieve all documents belonging to this thread
@@ -599,6 +641,10 @@ async def get_document_details(
     caller_id = uuid.UUID(user_token["sub"]) if isinstance(user_token["sub"], str) else user_token["sub"]
     if caller_role == Role.advisor.value and target_doc.advisor_id != caller_id:
         raise HTTPException(403, "Access denied")
+    if caller_role == Role.officer.value and target_doc.workspace_id:
+        caller = await db.scalar(select(User).where(User.id == caller_id))
+        if caller and caller.workspace_id and caller.workspace_id != target_doc.workspace_id:
+            raise HTTPException(403, "Access denied. Document belongs to another workspace.")
 
     db.add(AuditEvent(actor_id=caller_id, document_id=target_doc.id, action=AuditAction.viewed))
     await db.commit()
@@ -650,23 +696,57 @@ async def get_document_details(
         "is_locked_by_other": is_locked_by_other,
     }
 
-@router.get('/{document_id}/audit-log')
-async def get_audit_log(
+@router.get("/{document_id}/audit")
+@router.get("/{document_id}/audit-log")
+async def get_document_audit_trail(
     document_id: uuid.UUID,
     user_token: dict = Depends(require_any_role(Role.advisor, Role.officer)),
     db: AsyncSession = Depends(get_db),
 ):
     doc = await db.scalar(select(Document).where(Document.id == document_id))
-    if doc is None:
-        raise HTTPException(404, 'Document not found')
-    caller_role = user_token.get('role')
-    caller_id = uuid.UUID(user_token['sub']) if isinstance(user_token['sub'], str) else user_token['sub']
+    if not doc:
+        raise HTTPException(404, "Document not found")
+
+    caller_role = user_token.get("role")
+    caller_id = uuid.UUID(user_token["sub"]) if isinstance(user_token["sub"], str) else user_token["sub"]
+    caller = await db.scalar(select(User).where(User.id == caller_id))
+    if not caller:
+        raise HTTPException(401, "User not found")
+
     if caller_role == Role.advisor.value and doc.advisor_id != caller_id:
-        raise HTTPException(403, 'Access denied')
-    events_result = await db.execute(select(AuditEvent).where(AuditEvent.document_id == document_id).order_by(AuditEvent.timestamp.asc()))
-    events = events_result.scalars().all()
-    entries = []
-    for e in events:
-        actor = await db.scalar(select(User).where(User.id == e.actor_id))
-        entries.append({'action': e.action.value, 'actor_name': actor.name if actor else 'Unknown', 'timestamp': e.timestamp.isoformat()})
-    return {'document_id': str(document_id), 'events': entries}
+        raise HTTPException(403, "Access denied to audit trail")
+    if caller_role == Role.officer.value and doc.workspace_id:
+        if caller.workspace_id and doc.workspace_id != caller.workspace_id:
+            raise HTTPException(403, "Access denied to audit trail. Document belongs to another workspace.")
+
+    from sqlalchemy.orm import aliased
+    Actor = aliased(User)
+    events_res = await db.execute(
+        select(AuditEvent, Actor.name, Actor.email, Actor.role)
+        .join(Actor, AuditEvent.actor_id == Actor.id)
+        .where(AuditEvent.document_id == document_id)
+        .order_by(AuditEvent.timestamp.asc())
+    )
+    events = []
+    legacy_entries = []
+    for ev, actor_name, actor_email, actor_role in events_res.all():
+        events.append({
+            "id": str(ev.id),
+            "action": ev.action.value,
+            "timestamp": ev.timestamp.isoformat(),
+            "actor": {
+                "name": actor_name,
+                "email": actor_email,
+                "role": actor_role.value if actor_role else None,
+            }
+        })
+        legacy_entries.append({
+            "action": ev.action.value,
+            "actor_name": actor_name,
+            "timestamp": ev.timestamp.isoformat(),
+        })
+    return {
+        "document_id": str(document_id),
+        "audit_events": events,
+        "events": legacy_entries,
+    }
