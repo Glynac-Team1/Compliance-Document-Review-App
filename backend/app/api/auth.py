@@ -266,26 +266,31 @@ async def create_new_workspace(req: CreateWorkspaceRequest, db: AsyncSession = D
         )
 
     user_res = await db.execute(select(User).where(User.email == req.admin_email.strip().lower()))
-    if user_res.scalar_one_or_none():
-        raise HTTPException(
-            status_code=400,
-            detail="An account with this email address already exists.",
-        )
+    existing_user = user_res.scalar_one_or_none()
 
     workspace = Workspace(name=req.workspace_name.strip(), slug=slug)
     db.add(workspace)
     await db.commit()
     await db.refresh(workspace)
 
-    admin_user = User(
-        name=req.admin_name.strip(),
-        email=req.admin_email.strip().lower(),
-        password_hash=hash_password(req.admin_password),
-        role=Role.officer,
-        workspace_id=workspace.id,
-        is_admin=True,
-    )
-    db.add(admin_user)
+    if existing_user:
+        existing_user.workspace_id = workspace.id
+        existing_user.is_admin = True
+        existing_user.role = Role.officer
+        existing_user.password_hash = hash_password(req.admin_password)
+        existing_user.name = req.admin_name.strip() or existing_user.name
+        admin_user = existing_user
+    else:
+        admin_user = User(
+            name=req.admin_name.strip(),
+            email=req.admin_email.strip().lower(),
+            password_hash=hash_password(req.admin_password),
+            role=Role.officer,
+            workspace_id=workspace.id,
+            is_admin=True,
+        )
+        db.add(admin_user)
+
     await db.commit()
     await db.refresh(admin_user)
 

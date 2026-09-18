@@ -179,8 +179,9 @@ export default function LandingPage() {
       localStorage.setItem("user_slug", data.slug);
       localStorage.setItem("last_workspace_slug", data.workspace_slug);
       localStorage.setItem("workspace_name", data.workspace_name);
+      localStorage.setItem("is_admin", "true");
 
-      router.push(`/compliance-officer/${data.slug}`);
+      router.push("/admin");
     } catch (err: any) {
       setCreateError(err.message || "Failed to create workspace.");
     } finally {

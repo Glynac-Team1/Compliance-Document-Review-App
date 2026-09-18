@@ -8,13 +8,16 @@ import {
   Mail,
   Copy,
   Check,
-  Building2,
   KeyRound,
   Trash2,
   LogOut,
   ShieldAlert,
   XCircle,
   ExternalLink,
+  Sparkles,
+  ArrowRight,
+  Users,
+  CheckCircle2,
 } from "lucide-react";
 import { getApiBaseUrl } from "@/lib/api";
 
@@ -66,6 +69,7 @@ export default function AdminConsolePage() {
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const [latestInvite, setLatestInvite] = useState<{ email: string; token: string; role: string } | null>(null);
   const [activeTab, setActiveTab] = useState<"invite" | "team">("invite");
 
   async function fetchWorkspaceData(token: string) {
@@ -162,7 +166,12 @@ export default function AdminConsolePage() {
 
       setFeedback({
         type: "success",
-        message: `Invitation email dispatched to ${email}! The employee will receive a link to accept the invitation and set their password.`,
+        message: `Invitation email dispatched to ${email}! The employee will receive a secure onboarding link to accept the invite and set their password.`,
+      });
+      setLatestInvite({
+        email: email.trim().toLowerCase(),
+        token: data.token,
+        role: data.role,
       });
       setEmail("");
       if (token) await fetchWorkspaceData(token);
@@ -286,8 +295,12 @@ export default function AdminConsolePage() {
 
   if (!isAdmin) {
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-md rounded-2xl border border-destructive/20 bg-card p-8 text-center shadow-lg">
+      <div className="relative isolate min-h-screen bg-background flex flex-col items-center justify-center p-4 overflow-hidden">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 size-96 rounded-full bg-destructive/10 blur-3xl"
+        />
+        <div className="relative z-10 w-full max-w-md rounded-2xl border border-destructive/20 bg-card p-8 text-center shadow-lg">
           <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-destructive/10 text-destructive mb-4">
             <ShieldAlert className="size-7" />
           </div>
@@ -295,20 +308,29 @@ export default function AdminConsolePage() {
             Administrator Privileges Required
           </h1>
           <p className="text-xs text-muted-foreground leading-relaxed mb-6">
-            The workspace administration console is restricted to designated compliance administrators. Your current account (<span className="font-semibold text-foreground">{currentUser?.email}</span>) does not have administrative rights.
+            The workspace administration console is restricted to designated compliance administrators. Your current account (<span className="font-semibold text-foreground font-mono">{currentUser?.email}</span>) does not have administrative rights for <strong className="text-foreground">{currentUser?.workspace_name || "this workspace"}</strong>.
           </p>
           <div className="flex flex-col gap-2.5">
             <button
               onClick={handleLogoClick}
-              className="w-full rounded-xl bg-primary py-2.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition shadow-sm"
+              className="w-full rounded-xl bg-primary py-2.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition shadow-sm cursor-pointer"
             >
               Return to Workspace Dashboard
             </button>
             <button
               onClick={handleSignOut}
-              className="w-full rounded-xl border border-border py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition"
+              className="w-full rounded-xl border border-border py-2.5 text-xs font-medium text-foreground hover:bg-muted transition cursor-pointer"
             >
-              Sign Out
+              Sign Out / Switch Administrator Account
+            </button>
+            <button
+              onClick={() => {
+                handleSignOut();
+                router.push("/?tab=create");
+              }}
+              className="w-full text-center text-xs font-semibold text-primary hover:underline cursor-pointer pt-1"
+            >
+              Launch a New Organization Workspace →
             </button>
           </div>
         </div>
@@ -317,37 +339,50 @@ export default function AdminConsolePage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Top Navigation */}
-      <header className="border-b border-border bg-card/70 backdrop-blur-md sticky top-0 z-30">
+    <div className="relative isolate min-h-screen bg-background text-foreground flex flex-col selection:bg-primary/20 overflow-x-hidden">
+      {/* Subtle Transparent Blue Accents for Professional Institutional Depth */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 size-[680px] rounded-full bg-blue-500/10 blur-3xl -z-10"
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute top-1/2 -right-40 size-[500px] rounded-full bg-sky-500/10 blur-3xl -z-10"
+      />
+
+      {/* Top Header */}
+      <header className="sticky top-0 z-30 border-b border-border/80 bg-background/85 backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
-          <button
-            onClick={handleLogoClick}
-            className="flex items-center gap-3 text-left group hover:opacity-85 transition"
-            title="Return to your workspace dashboard"
-          >
-            <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground font-semibold shadow-sm">
-              <Building2 className="size-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold tracking-tight text-foreground text-sm">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleLogoClick}
+              className="flex items-center gap-2.5 text-left group hover:opacity-90 transition cursor-pointer"
+              title="Return to your role workspace"
+            >
+              <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground font-semibold shadow-sm">
+                <ShieldCheck className="size-5" />
+              </div>
+              <div>
+                <span className="font-bold tracking-tight text-foreground text-sm block leading-none">
                   {currentUser?.workspace_name || "Northstar Compliance"}
                 </span>
-                <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                  Admin Console
+                <span className="text-[10px] font-mono text-muted-foreground group-hover:text-primary transition-colors">
+                  app.compliance/{currentUser?.workspace_slug || "workspace"}
                 </span>
               </div>
-              <p className="text-[10px] text-muted-foreground group-hover:text-primary transition-colors">
-                ← Click to return to workspace dashboard
-              </p>
-            </div>
-          </button>
+            </button>
+            <span className="hidden sm:inline-block h-4 w-px bg-border/80" />
+            <span className="hidden sm:inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+              <KeyRound className="size-3" /> Admin Console
+            </span>
+          </div>
+
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Tab switch */}
             <div className="flex items-center rounded-xl border border-border bg-muted/40 p-1">
               <button
                 onClick={() => setActiveTab("invite")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
                   activeTab === "invite"
                     ? "bg-card text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
@@ -357,19 +392,29 @@ export default function AdminConsolePage() {
               </button>
               <button
                 onClick={() => setActiveTab("team")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
                   activeTab === "team"
                     ? "bg-card text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                Team Roster ({team.length})
+                Team Directory ({team.length})
               </button>
             </div>
 
+            {/* Direct Dashboard Link */}
+            <button
+              onClick={handleLogoClick}
+              className="hidden md:inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer shadow-sm"
+            >
+              <span>{currentUser?.role === "officer" ? "Review Queue" : "Advisor Space"}</span>
+              <ArrowRight className="size-3.5" />
+            </button>
+
+            {/* Sign Out */}
             <button
               onClick={handleSignOut}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-destructive transition"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-destructive transition cursor-pointer"
               title="Sign out of workspace"
             >
               <LogOut className="size-3.5" />
@@ -379,50 +424,158 @@ export default function AdminConsolePage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-        {/* Institutional Governance Banner */}
-        <div className="mb-8 rounded-2xl border border-border bg-card p-6 shadow-sm">
-          <div className="flex items-start gap-4">
-            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <ShieldCheck className="size-6" />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <h1 className="text-lg font-bold tracking-tight text-foreground">
-                  Workspace Administration & Access Governance
-                </h1>
-                <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                  <span className="size-1.5 rounded-full bg-emerald-500"></span> Live RBAC Enforced
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground leading-relaxed max-w-2xl">
-                Roles are strictly assigned by workspace administrators. Employees receive single-use onboarding invitations and join with locked organizational permissions.
-              </p>
-            </div>
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 w-full space-y-6">
+        {/* Executive Overview Stats */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="rounded-2xl border border-border/80 bg-card/90 p-4 shadow-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
+              Workspace Organization
+            </span>
+            <p className="text-sm font-bold text-foreground mt-1 truncate">
+              {currentUser?.workspace_name}
+            </p>
+            <span className="inline-flex items-center gap-1.5 mt-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+              <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" /> Operational
+            </span>
+          </div>
+
+          <div className="rounded-2xl border border-border/80 bg-card/90 p-4 shadow-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
+              Active Directory
+            </span>
+            <p className="text-sm font-bold text-foreground mt-1">
+              {team.length} {team.length === 1 ? "Member" : "Members"}
+            </p>
+            <span className="text-[11px] text-muted-foreground mt-1 block">
+              {team.filter((m) => m.is_admin).length} Administrator
+            </span>
+          </div>
+
+          <div className="rounded-2xl border border-border/80 bg-card/90 p-4 shadow-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
+              Pending Onboarding
+            </span>
+            <p className="text-sm font-bold text-foreground mt-1">
+              {invitations.filter((i) => i.status === "pending").length} Invitations
+            </p>
+            <span className="text-[11px] text-muted-foreground mt-1 block">
+              7-day token expiration
+            </span>
+          </div>
+
+          <div className="rounded-2xl border border-border/80 bg-card/90 p-4 shadow-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
+              Access Architecture
+            </span>
+            <p className="text-sm font-bold text-foreground mt-1">
+              Role Segregation
+            </p>
+            <span className="text-[11px] text-muted-foreground mt-1 block">
+              Invite-First Zero-Trust
+            </span>
           </div>
         </div>
 
-        {/* Global Feedback notification */}
+        {/* Clean State Welcome Card (Displayed when workspace is freshly created) */}
+        {invitations.length === 0 && (
+          <div className="rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/[0.05] via-primary/[0.02] to-transparent p-6 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border/60">
+              <div>
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary mb-2">
+                  <Sparkles className="size-3.5" /> Workspace Initialized
+                </div>
+                <h2 className="text-base font-bold text-foreground">
+                  Welcome to {currentUser?.workspace_name}
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5 max-w-xl">
+                  Your organization workspace is provisioned. As primary administrator, dispatch onboarding invitations below to assign locked roles for your team.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  const input = document.getElementById("invite-email-input");
+                  if (input) input.focus();
+                }}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition shadow-sm shrink-0 cursor-pointer"
+              >
+                <UserPlus className="size-4" />
+                <span>Invite First Team Member</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4 text-xs">
+              <div className="rounded-xl border border-border/70 bg-card/80 p-3.5 space-y-1">
+                <span className="font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                  <ShieldCheck className="size-4" /> Compliance Officers
+                </span>
+                <p className="text-muted-foreground text-[11px] leading-relaxed">
+                  Pre-assign compliance officers to grant review queue access, document approval/rejection authority, and immutable FINRA/SEC audit log inspection.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-border/70 bg-card/80 p-3.5 space-y-1">
+                <span className="font-semibold text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
+                  <Users className="size-4" /> Financial Advisors
+                </span>
+                <p className="text-muted-foreground text-[11px] leading-relaxed">
+                  Pre-assign advisors to allow drafting client presentations, running machine-verified policy scans, and submitting materials for compliance sign-off.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Global Feedback Banner */}
         {feedback && (
           <div
-            className={`mb-6 rounded-xl border p-3.5 text-xs font-medium flex items-center justify-between ${
+            className={`rounded-2xl border p-4 text-xs font-medium flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm ${
               feedback.type === "success"
-                ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                : "border-destructive/20 bg-destructive/10 text-destructive"
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-950 dark:text-emerald-300"
+                : "border-destructive/30 bg-destructive/10 text-destructive"
             }`}
           >
-            <span>{feedback.message}</span>
-            <button
-              onClick={() => setFeedback(null)}
-              className="text-xs opacity-70 hover:opacity-100 font-bold ml-3"
-            >
-              ✕
-            </button>
+            <div className="flex items-center gap-2.5">
+              <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>{feedback.message}</span>
+            </div>
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              {latestInvite && (
+                <>
+                  <a
+                    href={`/accept-invite?token=${latestInvite.token}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition"
+                  >
+                    <ExternalLink className="size-3.5" />
+                    <span>Test Onboarding Link</span>
+                  </a>
+                  <button
+                    onClick={() => copyInviteLink(latestInvite.token)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                  >
+                    {copiedToken === latestInvite.token ? (
+                      <Check className="size-3.5 text-emerald-500" />
+                    ) : (
+                      <Copy className="size-3.5" />
+                    )}
+                    <span>Copy</span>
+                  </button>
+                </>
+              )}
+              <button
+                onClick={() => setFeedback(null)}
+                className="text-muted-foreground hover:text-foreground font-bold px-2 py-1 cursor-pointer"
+                title="Dismiss"
+              >
+                ✕
+              </button>
+            </div>
           </div>
         )}
 
         {activeTab === "invite" ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Invite Form */}
             <div className="lg:col-span-1">
               <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
@@ -431,7 +584,7 @@ export default function AdminConsolePage() {
                     <UserPlus className="size-4" />
                   </div>
                   <div>
-                    <h2 className="text-sm font-bold text-foreground">Invite New Employee</h2>
+                    <h2 className="text-sm font-bold text-foreground">Invite Team Member</h2>
                     <p className="text-[11px] text-muted-foreground">Pre-assign a locked workspace role</p>
                   </div>
                 </div>
@@ -444,6 +597,7 @@ export default function AdminConsolePage() {
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
                       <input
+                        id="invite-email-input"
                         type="email"
                         required
                         value={email}
@@ -462,27 +616,27 @@ export default function AdminConsolePage() {
                       <button
                         type="button"
                         onClick={() => setRole("advisor")}
-                        className={`rounded-xl border p-2.5 text-left text-xs transition ${
+                        className={`rounded-xl border p-2.5 text-left text-xs transition cursor-pointer ${
                           role === "advisor"
-                            ? "border-primary bg-primary/10 text-primary font-semibold"
+                            ? "border-primary bg-primary/10 text-primary font-semibold ring-1 ring-primary"
                             : "border-border text-muted-foreground hover:bg-muted"
                         }`}
                       >
                         <div className="font-semibold text-foreground">Advisor</div>
-                        <div className="text-[10px] text-muted-foreground">Draft & submit materials</div>
+                        <div className="text-[10px] text-muted-foreground">Drafts materials & scans</div>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => setRole("officer")}
-                        className={`rounded-xl border p-2.5 text-left text-xs transition ${
+                        className={`rounded-xl border p-2.5 text-left text-xs transition cursor-pointer ${
                           role === "officer"
-                            ? "border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-semibold"
+                            ? "border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-semibold ring-1 ring-amber-500"
                             : "border-border text-muted-foreground hover:bg-muted"
                         }`}
                       >
                         <div className="font-semibold text-foreground">Officer</div>
-                        <div className="text-[10px] text-muted-foreground">Review & approve queue</div>
+                        <div className="text-[10px] text-muted-foreground">Review & approval queue</div>
                       </button>
                     </div>
                   </div>
@@ -490,9 +644,9 @@ export default function AdminConsolePage() {
                   <button
                     type="submit"
                     disabled={loading || !email}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-md shadow-primary/20 transition hover:bg-primary/90 disabled:opacity-50"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-md shadow-primary/20 transition hover:bg-primary/90 disabled:opacity-50 cursor-pointer"
                   >
-                    {loading ? "Generating Secure Link..." : "Create Onboarding Link"}
+                    {loading ? "Dispatching Invitation..." : "Send Secure Invitation Link →"}
                   </button>
                 </form>
               </div>
@@ -502,17 +656,25 @@ export default function AdminConsolePage() {
             <div className="lg:col-span-2">
               <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-sm font-bold text-foreground">
-                    Sent Invitations ({invitations.length})
-                  </h2>
-                  <span className="text-[11px] text-muted-foreground">
-                    Cryptographic 7-day tokens
-                  </span>
+                  <div>
+                    <h2 className="text-sm font-bold text-foreground">
+                      Sent Invitations ({invitations.length})
+                    </h2>
+                    <p className="text-[11px] text-muted-foreground">
+                      Cryptographic single-use invitations with 7-day TTL
+                    </p>
+                  </div>
                 </div>
 
                 {invitations.length === 0 ? (
-                  <div className="py-12 text-center text-xs text-muted-foreground">
-                    No invitations have been generated yet. Use the form to invite your first employee.
+                  <div className="py-12 flex flex-col items-center justify-center text-center">
+                    <div className="flex size-12 items-center justify-center rounded-2xl bg-muted/60 text-muted-foreground mb-3">
+                      <Mail className="size-6" />
+                    </div>
+                    <p className="text-xs font-semibold text-foreground">No pending invitations</p>
+                    <p className="text-[11px] text-muted-foreground mt-1 max-w-sm">
+                      Use the invitation form to onboard your compliance officers and financial advisors.
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -609,15 +771,17 @@ export default function AdminConsolePage() {
             </div>
           </div>
         ) : (
-          /* Team Roster Tab */
+          /* Team Directory Tab */
           <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-bold text-foreground">
-                Active Workspace Members ({team.length})
-              </h2>
-              <span className="text-[11px] text-muted-foreground">
-                Live membership directory
-              </span>
+              <div>
+                <h2 className="text-sm font-bold text-foreground">
+                  Active Workspace Members ({team.length})
+                </h2>
+                <p className="text-[11px] text-muted-foreground">
+                  Live membership directory for {currentUser?.workspace_name}
+                </p>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -642,12 +806,12 @@ export default function AdminConsolePage() {
                         <td className="py-3 font-semibold text-foreground">
                           {member.name}
                           {isSelf && (
-                            <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
-                              You
+                            <span className="ml-2 rounded bg-primary/10 text-primary px-1.5 py-0.5 text-[10px] font-semibold">
+                              You (Admin)
                             </span>
                           )}
                         </td>
-                        <td className="py-3 text-muted-foreground">{member.email}</td>
+                        <td className="py-3 text-muted-foreground font-mono">{member.email}</td>
                         <td className="py-3">
                           <span
                             className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${
@@ -662,10 +826,10 @@ export default function AdminConsolePage() {
                         <td className="py-3">
                           {member.is_admin ? (
                             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary">
-                              <KeyRound className="size-3" /> Admin
+                              <KeyRound className="size-3" /> Administrator
                             </span>
                           ) : (
-                            <span className="text-[11px] text-muted-foreground">Member</span>
+                            <span className="text-[11px] text-muted-foreground">Standard Member</span>
                           )}
                         </td>
                         <td className="py-3 text-muted-foreground">
@@ -674,13 +838,13 @@ export default function AdminConsolePage() {
                         <td className="py-3 text-right">
                           {isSelf ? (
                             <span className="text-[11px] text-muted-foreground italic">
-                              Current Admin
+                              Workspace Owner
                             </span>
                           ) : (
                             <button
                               onClick={() => handleRemoveMember(member.id, member.name, member.email)}
                               disabled={actionInProgress === member.id}
-                              className="inline-flex items-center gap-1 rounded-lg border border-destructive/20 bg-destructive/5 px-2.5 py-1 text-[11px] font-medium text-destructive hover:bg-destructive/15 transition disabled:opacity-50"
+                              className="inline-flex items-center gap-1 rounded-lg border border-destructive/20 bg-destructive/5 px-2.5 py-1 text-[11px] font-medium text-destructive hover:bg-destructive/15 transition disabled:opacity-50 cursor-pointer"
                             >
                               <Trash2 className="size-3" />
                               <span>{actionInProgress === member.id ? "Removing..." : "Remove"}</span>
