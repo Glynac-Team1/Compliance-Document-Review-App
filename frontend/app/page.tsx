@@ -192,26 +192,6 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col selection:bg-primary/20 relative overflow-x-hidden">
-      {/* Aesthetic Blue Transparent Circles (Color-matched to institutional Northstar Navy/Blue) */}
-      {/* Hero Section: Primary Large Blue Transparent Circle with concentric depth */}
-      <div className="pointer-events-none absolute -top-20 right-[-60px] sm:right-[-20px] lg:right-[4%] size-[540px] sm:size-[680px] lg:size-[780px] select-none -z-10 flex items-center justify-center animate-float-slow">
-        <div className="absolute inset-0 rounded-full border border-blue-500/20 bg-gradient-to-br from-blue-500/[0.07] via-primary/[0.04] to-transparent shadow-[0_0_120px_rgba(37,99,235,0.08)]" />
-        <div className="absolute size-[72%] rounded-full border border-blue-400/15 bg-blue-600/[0.02]" />
-        <div className="absolute size-[46%] rounded-full border border-primary/15 bg-primary/[0.02]" />
-      </div>
-
-      {/* Capabilities & Architecture Section: Mid-page Blue Transparent Circle */}
-      <div className="pointer-events-none absolute top-[34%] left-[-120px] sm:left-[-60px] size-[460px] sm:size-[580px] select-none -z-10 flex items-center justify-center animate-float-reverse">
-        <div className="absolute inset-0 rounded-full border border-blue-500/15 bg-gradient-to-tr from-blue-500/[0.06] via-primary/[0.03] to-transparent shadow-[0_0_90px_rgba(37,99,235,0.06)]" />
-        <div className="absolute size-[70%] rounded-full border border-blue-400/10" />
-      </div>
-
-      {/* Support & FAQ Section: Lower-page Blue Transparent Circle */}
-      <div className="pointer-events-none absolute bottom-[8%] right-[-80px] sm:right-[-40px] size-[420px] sm:size-[520px] select-none -z-10 flex items-center justify-center animate-float-slow">
-        <div className="absolute inset-0 rounded-full border border-blue-500/15 bg-gradient-to-tl from-blue-600/[0.05] via-primary/[0.02] to-transparent shadow-[0_0_80px_rgba(37,99,235,0.05)]" />
-        <div className="absolute size-[68%] rounded-full border border-blue-400/10" />
-      </div>
-
       {/* Institutional dot grid with soft radial vignette */}
       <div className="pointer-events-none absolute inset-0 bg-grid-pattern [mask-image:radial-gradient(ellipse_75%_65%_at_50%_35%,#000_50%,transparent_100%)] -z-10" />
 
@@ -262,8 +242,29 @@ export default function LandingPage() {
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="relative pt-12 pb-20 sm:pt-16 sm:pb-24 border-b border-border/40">
+      {/* Hero Section with Isolated Stacking Context & Transparent Blue Circles */}
+      <section className="relative isolate overflow-hidden pt-12 pb-20 sm:pt-16 sm:pb-24 border-b border-border/40">
+        {/* Aesthetic Transparent Blue Geometric Circles in Hero (Vividly visible, perfectly matching brand palette) */}
+        <div className="pointer-events-none absolute -top-16 left-1/2 -translate-x-1/2 size-[650px] sm:size-[820px] lg:size-[980px] select-none -z-10 flex items-center justify-center">
+          {/* Ambient soft radiant outer glow */}
+          <div className="absolute inset-0 rounded-full bg-blue-500/15 blur-[100px] animate-pulse-glow" />
+          
+          {/* Primary transparent blue circle disk with visible border */}
+          <div className="absolute inset-8 sm:inset-12 rounded-full border-2 border-blue-500/40 bg-gradient-to-br from-blue-500/20 via-blue-600/10 to-transparent shadow-[0_0_120px_rgba(37,99,235,0.22)] animate-float-slow" />
+          
+          {/* Nested concentric precision ring */}
+          <div className="absolute size-[72%] rounded-full border border-blue-400/35 bg-blue-500/[0.05]" />
+          
+          {/* Inner core circle */}
+          <div className="absolute size-[46%] rounded-full border border-primary/30 bg-primary/[0.03]" />
+        </div>
+
+        {/* Accent floating transparent blue circle behind headline */}
+        <div className="pointer-events-none absolute top-12 -left-20 size-[380px] sm:size-[480px] select-none -z-10 flex items-center justify-center">
+          <div className="absolute inset-0 rounded-full border border-blue-500/30 bg-gradient-to-tr from-sky-500/15 via-blue-500/10 to-transparent shadow-[0_0_80px_rgba(59,130,246,0.18)] animate-float-reverse" />
+          <div className="absolute size-[70%] rounded-full border border-blue-400/25" />
+        </div>
+
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-14 items-start">
             {/* Left Headline Column */}
@@ -277,20 +278,20 @@ export default function LandingPage() {
                 Institutional compliance review, complete audit assurance.
               </h1>
 
-              <p className="text-sm sm:text-base text-muted-foreground leading-relaxed max-w-xl">
+              <p className="text-sm sm:text-base text-foreground/85 dark:text-foreground/90 font-normal leading-relaxed max-w-xl">
                 Northstar enables financial teams to review client materials with machine-verified precision, strict role governance, and real-time concurrency locks built for regulatory scrutiny.
               </p>
 
               {/* Workspace Auto-Detection Callout */}
               {detectedSlug && (
-                <div className="rounded-2xl border border-primary/25 bg-primary/[0.04] backdrop-blur-sm p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                <div className="rounded-2xl border border-primary/30 bg-primary/[0.06] dark:bg-primary/10 backdrop-blur-sm p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shrink-0 shadow-sm">
                       <Building2 className="size-4" />
                     </div>
                     <div className="min-w-0">
-                      <p className="text-[11px] font-medium text-muted-foreground">Active Workspace Detected</p>
-                      <p className="text-sm font-bold text-foreground truncate">{detectedWorkspaceName}</p>
+                      <p className="text-xs font-semibold text-primary dark:text-sky-400 uppercase tracking-wider">Active Workspace Detected</p>
+                      <p className="text-base font-extrabold text-foreground truncate">{detectedWorkspaceName}</p>
                     </div>
                   </div>
                   <Link
@@ -303,22 +304,22 @@ export default function LandingPage() {
                 </div>
               )}
 
-              {/* Confidence Points */}
-              <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-muted-foreground">
+              {/* Confidence Points with Crisp High-Contrast Typography */}
+              <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-medium text-foreground/90 dark:text-foreground/95">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
                   <span>Single-use cryptographic invitations</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
                   <span>No unverified officer self-signups</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
                   <span>Live SSE document conflict prevention</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
                   <span>Immutable audit log for inspections</span>
                 </div>
               </div>
@@ -655,8 +656,15 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
-      {/* Core Capabilities Section */}
-      <section id="features" className="py-20 sm:py-24 border-b border-border/40 scroll-mt-16">
+      {/* Core Capabilities Section with Isolated Stacking Context & Transparent Blue Circle */}
+      <section id="features" className="relative isolate overflow-hidden py-20 sm:py-24 border-b border-border/40 scroll-mt-16">
+        {/* Mid-page Aesthetic Blue Transparent Geometric Circle */}
+        <div className="pointer-events-none absolute top-1/2 -translate-y-1/2 -right-28 size-[520px] sm:size-[650px] select-none -z-10 flex items-center justify-center">
+          <div className="absolute inset-0 rounded-full border border-blue-500/30 bg-gradient-to-bl from-blue-500/15 via-primary/[0.06] to-transparent shadow-[0_0_90px_rgba(37,99,235,0.18)] animate-float-slow" />
+          <div className="absolute size-[70%] rounded-full border border-blue-400/25" />
+          <div className="absolute size-[45%] rounded-full border border-primary/20" />
+        </div>
+
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-2xl mx-auto mb-14">
             <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1 text-xs font-semibold text-muted-foreground mb-3">
@@ -741,8 +749,15 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Support & Interactive FAQ Section */}
-      <section id="support" className="py-20 sm:py-24 border-b border-border/40 scroll-mt-16">
+      {/* Support & Interactive FAQ Section with Isolated Stacking Context & Transparent Blue Circle */}
+      <section id="support" className="relative isolate overflow-hidden py-20 sm:py-24 border-b border-border/40 scroll-mt-16">
+        {/* Bottom-page Aesthetic Blue Transparent Geometric Circle */}
+        <div className="pointer-events-none absolute top-1/3 -left-28 size-[480px] sm:size-[600px] select-none -z-10 flex items-center justify-center">
+          <div className="absolute inset-0 rounded-full border border-blue-500/25 bg-gradient-to-tr from-blue-600/15 via-primary/[0.05] to-transparent shadow-[0_0_80px_rgba(37,99,235,0.15)] animate-float-reverse" />
+          <div className="absolute size-[70%] rounded-full border border-blue-400/20" />
+          <div className="absolute size-[45%] rounded-full border border-primary/20" />
+        </div>
+
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
             {/* Left FAQ Column */}
