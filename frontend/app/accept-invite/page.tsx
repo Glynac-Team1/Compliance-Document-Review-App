@@ -7,9 +7,7 @@ import {
   CheckCircle2,
   XCircle,
   AlertTriangle,
-  Lock,
   User,
-  Building2,
   ArrowRight,
   Eye,
   EyeOff,
@@ -42,7 +40,7 @@ function calculatePasswordStrength(pass: string): {
     upper: /[A-Z]/.test(pass),
     lower: /[a-z]/.test(pass),
     number: /\d/.test(pass),
-    symbol: /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?/~`]/.test(pass),
+    symbol: /[^A-Za-z0-9]/.test(pass),
   };
 
   const score = Object.values(checks).filter(Boolean).length;

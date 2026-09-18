@@ -6,7 +6,6 @@ import {
   ShieldCheck,
   UserPlus,
   Mail,
-  Users,
   Copy,
   Check,
   Building2,

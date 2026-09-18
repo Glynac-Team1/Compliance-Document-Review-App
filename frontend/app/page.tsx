@@ -12,17 +12,13 @@ import {
   CheckCircle2,
   Lock,
   Zap,
-  Users,
   Eye,
   EyeOff,
   HelpCircle,
   Mail,
-  FileText,
-  Clock,
   ChevronDown,
   Copy,
   Check,
-  ExternalLink,
   Shield,
   Activity,
   ArrowUpRight,
@@ -64,7 +60,6 @@ export default function LandingPage() {
   // Remembered session state
   const [detectedSlug, setDetectedSlug] = useState<string | null>(null);
   const [detectedWorkspaceName, setDetectedWorkspaceName] = useState<string | null>(null);
-  const [activeUser, setActiveUser] = useState<{ name: string; role: string; slug: string } | null>(null);
 
   // Active tab in hero workspace hub: 'create' | 'lookup'
   const [activeTab, setActiveTab] = useState<"create" | "lookup">("create");
@@ -110,12 +105,9 @@ export default function LandingPage() {
       })
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
-          if (data) {
-            setActiveUser({ name: data.name, role: data.role, slug: data.slug });
-            if (data.workspace_slug) {
-              setDetectedSlug(data.workspace_slug);
-              setDetectedWorkspaceName(data.workspace_name || data.workspace_slug);
-            }
+          if (data && data.workspace_slug) {
+            setDetectedSlug(data.workspace_slug);
+            setDetectedWorkspaceName(data.workspace_name || data.workspace_slug);
           }
         })
         .catch(() => {});
@@ -149,7 +141,7 @@ export default function LandingPage() {
       });
       const data = await res.json();
       setLookupResult(data);
-    } catch (err) {
+    } catch {
       setLookupResult({
         found: false,
         message: "Unable to connect to discovery service. Please verify your connection.",
@@ -200,10 +192,35 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col selection:bg-primary/20 relative overflow-x-hidden">
-      {/* Ambient Background Lights & Grid Design */}
-      <div className="absolute top-[-100px] right-[-50px] size-[520px] rounded-full bg-primary/10 blur-[130px] pointer-events-none animate-float-slow -z-10" />
-      <div className="absolute top-[38%] left-[-120px] size-[480px] rounded-full bg-blue-500/10 blur-[120px] pointer-events-none animate-float-reverse -z-10" />
-      <div className="absolute inset-0 bg-grid-pattern [mask-image:radial-gradient(ellipse_75%_65%_at_50%_35%,#000_50%,transparent_100%)] pointer-events-none -z-10" />
+      {/* Immersed Background Blue Circles & Animated Orbital Rings */}
+      <div className="pointer-events-none absolute -top-24 right-[-80px] size-[680px] select-none -z-10 overflow-visible">
+        {/* Soft immersed blue glowing core */}
+        <div className="absolute inset-10 rounded-full bg-gradient-to-br from-blue-500/20 via-primary/15 to-indigo-600/10 blur-[90px] animate-pulse-glow" />
+        
+        {/* Concentric orbital rings */}
+        <div className="absolute inset-0 rounded-full border border-blue-500/25 animate-spin-slow" />
+        <div className="absolute inset-14 rounded-full border border-dashed border-blue-400/30 animate-spin-reverse-slow" />
+        <div className="absolute inset-28 rounded-full border border-primary/20 animate-spin-slow" />
+        <div className="absolute inset-44 rounded-full border border-blue-600/20" />
+
+        {/* Orbiting celestial satellite nodes on perimeter */}
+        <div className="absolute inset-0 animate-spin-slow">
+          <span className="absolute top-4 left-1/2 size-3 -translate-x-1/2 rounded-full bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,0.8)]" />
+        </div>
+        <div className="absolute inset-14 animate-spin-reverse-slow">
+          <span className="absolute bottom-6 right-16 size-2.5 rounded-full bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.8)]" />
+        </div>
+      </div>
+
+      {/* Secondary immersed blue orb on the mid-left */}
+      <div className="pointer-events-none absolute top-[36%] -left-36 size-[560px] select-none -z-10 overflow-visible">
+        <div className="absolute inset-8 rounded-full bg-gradient-to-tr from-sky-500/15 via-blue-600/15 to-indigo-500/10 blur-[100px] animate-float-slow" />
+        <div className="absolute inset-0 rounded-full border border-blue-500/15 animate-spin-reverse-slow" />
+        <div className="absolute inset-16 rounded-full border border-dashed border-sky-400/20 animate-spin-slow" />
+      </div>
+
+      {/* Subtle institutional dot grid with soft radial vignette */}
+      <div className="pointer-events-none absolute inset-0 bg-grid-pattern [mask-image:radial-gradient(ellipse_75%_65%_at_50%_35%,#000_50%,transparent_100%)] -z-10" />
 
       {/* Top Navigation */}
       <header className="sticky top-0 z-40 border-b border-border/80 bg-background/80 backdrop-blur-xl">
@@ -232,40 +249,22 @@ export default function LandingPage() {
           </nav>
 
           <div className="flex items-center gap-3">
-            {activeUser ? (
-              <button
-                onClick={() => {
-                  const path =
-                    activeUser.role === "officer"
-                      ? `/compliance-officer/${activeUser.slug}`
-                      : `/advisor/${activeUser.slug}`;
-                  router.push(path);
-                }}
-                className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition active:scale-95"
-              >
-                <span>Go to Dashboard</span>
-                <ArrowRight className="size-3.5" />
-              </button>
-            ) : (
-              <>
-                <Link
-                  href={detectedSlug ? `/login?workspace=${detectedSlug}` : "/login"}
-                  className="rounded-xl border border-border px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-muted transition active:scale-95"
-                >
-                  Sign In
-                </Link>
-                <button
-                  onClick={() => {
-                    setActiveTab("create");
-                    scrollToSection("workspace-hub");
-                  }}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 transition active:scale-95 cursor-pointer"
-                >
-                  <Building2 className="size-3.5" />
-                  <span>Create Workspace</span>
-                </button>
-              </>
-            )}
+            <Link
+              href={detectedSlug ? `/login?workspace=${detectedSlug}` : "/login"}
+              className="rounded-xl border border-border px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-muted transition active:scale-95"
+            >
+              Sign In
+            </Link>
+            <button
+              onClick={() => {
+                setActiveTab("create");
+                scrollToSection("workspace-hub");
+              }}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 transition active:scale-95 cursor-pointer"
+            >
+              <Building2 className="size-3.5" />
+              <span>Create Workspace</span>
+            </button>
           </div>
         </div>
       </header>
