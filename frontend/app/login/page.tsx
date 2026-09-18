@@ -509,10 +509,7 @@ function LoginContent() {
                       <div className="flex items-start gap-2">
                         <AlertCircle className="size-4 shrink-0 mt-0.5" />
                         <span className="leading-relaxed">
-                          <strong>Admin Invite Required:</strong> To maintain strict regulatory security, Compliance Officers cannot self-register. Please use the invitation link sent to your email or{" "}
-                          <Link href="/accept-invite" className="font-bold underline">
-                            Accept Invite here
-                          </Link>.
+                          <strong>Admin Invite Required:</strong> To maintain strict regulatory security, Compliance Officers cannot self-register. Please click the invitation link sent to your work email by your administrator.
                         </span>
                       </div>
                     </div>
@@ -562,12 +559,12 @@ function LoginContent() {
             {/* Navigation Footers */}
             <div className="mt-6 border-t border-border/60 pt-4 flex flex-col items-center gap-2 text-center text-xs text-muted-foreground">
               <p>
-                Have an onboarding invitation?{" "}
+                Received an onboarding invitation email?{" "}
                 <Link
                   href="/accept-invite"
                   className="font-semibold text-primary hover:underline"
                 >
-                  Accept Invite
+                  Enter Setup Link
                 </Link>
               </p>
               <p>

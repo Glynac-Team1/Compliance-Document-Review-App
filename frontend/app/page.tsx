@@ -715,13 +715,7 @@ export default function LandingPage() {
               </p>
               <div className="mt-5 pt-4 border-t border-border/60 flex items-center justify-between text-[11px]">
                 <span className="font-semibold text-primary">Cryptographic Tokens</span>
-                <Link
-                  href="/accept-invite"
-                  className="font-semibold text-primary hover:underline inline-flex items-center gap-1"
-                >
-                  <span>Accept invite</span>
-                  <ArrowUpRight className="size-3" />
-                </Link>
+                <span className="font-medium text-muted-foreground">Admin Email Dispatch Only</span>
               </div>
             </div>
 
@@ -882,10 +876,10 @@ export default function LandingPage() {
                     <ArrowRight className="size-3.5" />
                   </button>
                   <Link
-                    href="/accept-invite"
+                    href="/login"
                     className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-2.5 text-xs font-semibold text-foreground hover:bg-muted transition active:scale-95"
                   >
-                    <span>Accept Onboarding Invitation</span>
+                    <span>Sign In to Existing Workspace</span>
                   </Link>
                 </div>
 
@@ -931,9 +925,6 @@ export default function LandingPage() {
             </button>
             <Link href="/login" className="hover:text-foreground transition">
               Sign In
-            </Link>
-            <Link href="/accept-invite" className="hover:text-foreground transition">
-              Accept Invite
             </Link>
             <button
               onClick={handleCopyEmail}

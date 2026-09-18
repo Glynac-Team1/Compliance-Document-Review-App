@@ -14,6 +14,7 @@ import {
   LogOut,
   ShieldAlert,
   XCircle,
+  ExternalLink,
 } from "lucide-react";
 import { getApiBaseUrl } from "@/lib/api";
 
@@ -161,7 +162,7 @@ export default function AdminConsolePage() {
 
       setFeedback({
         type: "success",
-        message: `Invitation generated for ${email}! Copy the onboarding link below to share with the employee.`,
+        message: `Invitation email dispatched to ${email}! The employee will receive a link to accept the invitation and set their password.`,
       });
       setEmail("");
       if (token) await fetchWorkspaceData(token);
@@ -562,9 +563,19 @@ export default function AdminConsolePage() {
 
                           {isPending && (
                             <div className="flex items-center gap-2">
+                              <a
+                                href={`/accept-invite?token=${inv.token}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/5 px-2.5 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10 transition"
+                                title="Open invitation link to test user onboarding flow"
+                              >
+                                <ExternalLink className="size-3.5" />
+                                <span>Test Email Link</span>
+                              </a>
                               <button
                                 onClick={() => copyInviteLink(inv.token)}
-                                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition"
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition cursor-pointer"
                               >
                                 {copiedToken === inv.token ? (
                                   <>
@@ -581,7 +592,7 @@ export default function AdminConsolePage() {
                               <button
                                 onClick={() => handleRevokeInvite(inv.id, inv.email)}
                                 disabled={actionInProgress === inv.id}
-                                className="inline-flex items-center gap-1 rounded-lg border border-destructive/20 bg-destructive/5 px-2.5 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/15 transition disabled:opacity-50"
+                                className="inline-flex items-center gap-1 rounded-lg border border-destructive/20 bg-destructive/5 px-2.5 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/15 transition disabled:opacity-50 cursor-pointer"
                                 title="Revoke invitation"
                               >
                                 <XCircle className="size-3.5" />
