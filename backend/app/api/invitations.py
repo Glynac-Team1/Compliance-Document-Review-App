@@ -280,6 +280,9 @@ async def list_workspace_invitations(
         .join(Workspace, WorkspaceInvitation.workspace_id == Workspace.id)
         .order_by(WorkspaceInvitation.created_at.desc())
     )
+    if admin.workspace_id:
+        query = query.where(WorkspaceInvitation.workspace_id == admin.workspace_id)
+
     result = await db.execute(query)
     invites = []
     for inv, ws_name, ws_slug in result.all():
@@ -304,7 +307,7 @@ async def revoke_invitation(
     admin: User = Depends(require_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Revokes a pending workspace invitation."""
+    """Revokes a pending workspace invitation, or purges an already revoked invitation."""
     try:
         inv_uuid = uuid.UUID(invitation_id)
     except ValueError:
@@ -321,6 +324,18 @@ async def revoke_invitation(
             detail="Invitation not found.",
         )
 
+    if admin.workspace_id and inv.workspace_id != admin.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot manage invitations outside your workspace.",
+        )
+
+    if inv.status == InvitationStatus.revoked:
+        # Permanently purge already-revoked invitation
+        await db.delete(inv)
+        await db.commit()
+        return {"message": f"Invitation for {inv.email} permanently purged.", "id": str(inv.id), "status": "deleted"}
+
     inv.status = InvitationStatus.revoked
     await db.commit()
     return {"message": f"Invitation for {inv.email} has been revoked.", "id": str(inv.id), "status": "revoked"}
@@ -335,9 +350,13 @@ async def list_workspace_team(
     query = (
         select(User, Workspace.slug)
         .outerjoin(Workspace, User.workspace_id == Workspace.id)
-        .where(User.workspace_id.isnot(None))
         .order_by(User.created_at.desc())
     )
+    if admin.workspace_id:
+        query = query.where(User.workspace_id == admin.workspace_id)
+    else:
+        query = query.where(User.workspace_id.isnot(None))
+
     result = await db.execute(query)
     members = []
     for u, ws_slug in result.all():

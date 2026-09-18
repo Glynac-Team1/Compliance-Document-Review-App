@@ -97,6 +97,7 @@ interface ActiveSession {
   slug: string;
   workspace_name?: string;
   workspace_slug?: string;
+  is_admin?: boolean;
 }
 
 function LoginContent() {
@@ -143,6 +144,7 @@ function LoginContent() {
 
         if (res.ok) {
           const data = await res.json();
+          if (data.is_admin) localStorage.setItem("is_admin", "true");
           if (data.role) localStorage.setItem("user_role", data.role);
           if (data.slug) localStorage.setItem("user_slug", data.slug);
           if (data.workspace_slug) {
@@ -156,6 +158,7 @@ function LoginContent() {
           setActiveSession(data);
         } else {
           localStorage.removeItem("auth_token");
+          localStorage.removeItem("is_admin");
           localStorage.removeItem("user_role");
           localStorage.removeItem("user_slug");
           setActiveSession(null);
@@ -201,10 +204,16 @@ function LoginContent() {
       }
 
       localStorage.setItem("auth_token", data.token);
+      if (data.is_admin) localStorage.setItem("is_admin", "true");
       if (data.role) localStorage.setItem("user_role", data.role);
       if (data.slug) localStorage.setItem("user_slug", data.slug);
       if (data.workspace_slug) localStorage.setItem("last_workspace_slug", data.workspace_slug);
       if (data.workspace_name) localStorage.setItem("workspace_name", data.workspace_name);
+
+      if (data.is_admin) {
+        router.push("/admin");
+        return;
+      }
 
       const targetSlug = data.slug || "workspace";
       if (data.role === "advisor") {
@@ -361,12 +370,20 @@ function LoginContent() {
                 <button
                   type="button"
                   onClick={() => {
-                    const target = `/${activeSession.role === "officer" ? "compliance-officer" : "advisor"}/${activeSession.slug || "workspace"}`;
-                    router.push(target);
+                    if (activeSession.is_admin) {
+                      router.push("/admin");
+                    } else {
+                      const target = `/${activeSession.role === "officer" ? "compliance-officer" : "advisor"}/${activeSession.slug || "workspace"}`;
+                      router.push(target);
+                    }
                   }}
                   className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 cursor-pointer"
                 >
-                  <span>Continue to Workspace ({activeSession.slug})</span>
+                  <span>
+                    {activeSession.is_admin
+                      ? "Continue to Admin Console"
+                      : `Continue to Workspace (${activeSession.slug})`}
+                  </span>
                   <ArrowRight className="size-3.5" />
                 </button>
                 <p className="mt-2 text-center text-[11px] text-muted-foreground">

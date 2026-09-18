@@ -180,6 +180,7 @@ export default function LandingPage() {
       localStorage.setItem("last_workspace_slug", data.workspace_slug);
       localStorage.setItem("workspace_name", data.workspace_name);
       localStorage.setItem("is_admin", "true");
+      sessionStorage.setItem("admin_authenticated", "true");
 
       router.push("/admin");
     } catch (err: any) {

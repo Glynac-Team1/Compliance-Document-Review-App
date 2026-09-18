@@ -79,6 +79,9 @@ class Document(Base):
     # --- added for revision threading (plan §5 / §6) ---
     thread_root_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
 
+    # --- added for multi-tenant workspace isolation ---
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("workspaces.id"), nullable=True)
+
 
 class Decision(str, enum.Enum):
     approve = "approve"

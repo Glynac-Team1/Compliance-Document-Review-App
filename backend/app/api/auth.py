@@ -207,6 +207,7 @@ async def login(req: AuthRequest, db: AsyncSession = Depends(get_db)):
         "slug": slug,
         "workspace_name": workspace_name,
         "workspace_slug": workspace_slug,
+        "is_admin": user.is_admin,
     }
 
 

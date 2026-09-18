@@ -17,7 +17,12 @@ async def list_my_documents(
     user_token: dict = Depends(require_role(Role.advisor)),
     db: AsyncSession = Depends(get_db)
 ):
-    advisor_id = user_token["sub"]
+    advisor_id = uuid.UUID(str(user_token["sub"])) if "sub" in user_token else None
+    advisor_workspace_id = None
+    if advisor_id:
+        adv_res = await db.execute(select(User.workspace_id).where(User.id == advisor_id))
+        advisor_workspace_id = adv_res.scalar_one_or_none()
+
     ClaimingOfficer = aliased(User)
     query = (
         select(Document, ClaimingOfficer)
@@ -25,6 +30,12 @@ async def list_my_documents(
         .where(Document.advisor_id == advisor_id)
         .order_by(desc(Document.created_at))
     )
+
+    if advisor_workspace_id:
+        query = query.where(Document.workspace_id == advisor_workspace_id)
+    else:
+        query = query.where(Document.workspace_id.is_(None))
+
     result = await db.execute(query)
     rows = result.all()
     
@@ -94,6 +105,18 @@ async def list_review_queue(
     user_token: dict = Depends(require_role(Role.officer)),
     db: AsyncSession = Depends(get_db)
 ):
+    current_officer_id = None
+    if "sub" in user_token:
+        try:
+            current_officer_id = uuid.UUID(str(user_token["sub"]))
+        except ValueError:
+            pass
+
+    officer_workspace_id = None
+    if current_officer_id:
+        officer_res = await db.execute(select(User.workspace_id).where(User.id == current_officer_id))
+        officer_workspace_id = officer_res.scalar_one_or_none()
+
     # Join Document with submitter (User) and optional claiming officer (ClaimingOfficer)
     ClaimingOfficer = aliased(User)
     query = (
@@ -102,6 +125,12 @@ async def list_review_queue(
         .outerjoin(ClaimingOfficer, Document.locked_by_officer_id == ClaimingOfficer.id)
         .order_by(desc(Document.created_at))
     )
+
+    if officer_workspace_id:
+        query = query.where(Document.workspace_id == officer_workspace_id)
+    else:
+        query = query.where(Document.workspace_id.is_(None))
+
     result = await db.execute(query)
     
     current_officer_id = uuid.UUID(user_token["sub"]) if "sub" in user_token else None
@@ -168,13 +197,19 @@ async def submit_review(
 @officer_router.get("/{document_id}/view")
 async def get_document_url(
     document_id: uuid.UUID,
-    _: dict = Depends(require_role(Role.officer)),
+    user_token: dict = Depends(require_role(Role.officer)),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Document).where(Document.id == document_id))
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Not found")
+
+    officer_id = uuid.UUID(str(user_token["sub"])) if "sub" in user_token else None
+    if officer_id and doc.workspace_id:
+        officer = await db.scalar(select(User).where(User.id == officer_id))
+        if officer and officer.workspace_id and officer.workspace_id != doc.workspace_id:
+            raise HTTPException(status_code=403, detail="Access denied. Document belongs to another workspace.")
         
     from app.core.storage import s3_client
     from app.config import settings
