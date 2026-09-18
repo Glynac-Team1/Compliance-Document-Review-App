@@ -116,30 +116,30 @@ async def signup(req: AuthRequest, db: AsyncSession = Depends(get_db)):
     if result.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
 
-    # 3. Security Gate: Compliance Officers CANNOT self-register without an invitation
-    if req.role == Role.officer:
-        # Check if an invitation token was passed, or if a pending invitation exists for this email
-        inv_query = select(WorkspaceInvitation).where(
+    # 3. Security Gate: Individuals CANNOT self-register into any role without an administrator invitation
+    inv_query = (
+        select(WorkspaceInvitation, Workspace)
+        .join(Workspace, WorkspaceInvitation.workspace_id == Workspace.id)
+        .where(
             WorkspaceInvitation.email == normalized_email,
-            WorkspaceInvitation.role == Role.officer,
+            WorkspaceInvitation.role == req.role,
             WorkspaceInvitation.status == InvitationStatus.pending,
         )
-        if req.invite_token:
-            inv_query = inv_query.where(WorkspaceInvitation.token == req.invite_token)
+    )
+    if req.invite_token:
+        inv_query = inv_query.where(WorkspaceInvitation.token == req.invite_token)
 
-        inv_res = await db.execute(inv_query)
-        invitation = inv_res.scalar_one_or_none()
-        if not invitation:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Compliance Officer accounts require an administrator invitation. Please ask your compliance administrator to invite your email address.",
-            )
-        invitation.status = InvitationStatus.accepted
-
-    # 4. Resolve workspace
-    ws_res = await db.execute(select(Workspace).where(Workspace.slug == req.workspace_slug))
-    workspace = ws_res.scalar_one_or_none()
-    workspace_id = workspace.id if workspace else None
+    inv_res = await db.execute(inv_query)
+    inv_row = inv_res.first()
+    if not inv_row:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Self-registration is disabled. Joining as a {req.role.value.capitalize()} requires a single-use onboarding invitation dispatched by your organization administrator.",
+        )
+    invitation, workspace = inv_row
+    invitation.status = InvitationStatus.accepted
+    workspace_id = workspace.id
+    resolved_workspace_slug = workspace.slug
 
     # 5. Hash password and save user
     new_user = User(
@@ -244,7 +244,7 @@ async def get_current_user(token: dict = Depends(decode_session_token), db: Asyn
 
 class CreateWorkspaceRequest(BaseModel):
     workspace_name: str
-    workspace_slug: str
+    workspace_slug: str | None = None
     admin_name: str
     admin_email: str
     admin_password: str
@@ -255,16 +255,25 @@ async def create_new_workspace(req: CreateWorkspaceRequest, db: AsyncSession = D
     """Allows a new financial firm to register an organization workspace with an initial Administrator."""
     validate_password_strength(req.admin_password)
 
-    slug = re.sub(r'[^a-zA-Z0-9]+', '-', req.workspace_slug.strip()).strip('-').lower()
-    if not slug:
-        raise HTTPException(status_code=400, detail="Invalid workspace slug.")
+    # Server-side generation of organization identifier
+    raw_slug = req.workspace_slug.strip() if req.workspace_slug and req.workspace_slug.strip() else ""
+    if not raw_slug:
+        raw_slug = re.sub(r'[^a-zA-Z0-9]+', '-', req.workspace_name.strip()).strip('-').lower()
+    if not raw_slug:
+        raw_slug = "workspace"
 
+    # Ensure unique slug server-side
+    slug = raw_slug
     ws_res = await db.execute(select(Workspace).where(Workspace.slug == slug))
     if ws_res.scalar_one_or_none():
-        raise HTTPException(
-            status_code=400,
-            detail="A workspace with this URL slug already exists. Please choose a different identifier.",
-        )
+        import secrets
+        slug = f"{raw_slug}-{secrets.token_hex(2)}"
+        # Check again to guarantee uniqueness
+        while True:
+            ws_check = await db.execute(select(Workspace).where(Workspace.slug == slug))
+            if not ws_check.scalar_one_or_none():
+                break
+            slug = f"{raw_slug}-{secrets.token_hex(3)}"
 
     user_res = await db.execute(select(User).where(User.email == req.admin_email.strip().lower()))
     existing_user = user_res.scalar_one_or_none()

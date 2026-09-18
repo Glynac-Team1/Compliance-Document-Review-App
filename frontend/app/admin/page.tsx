@@ -14,8 +14,6 @@ import {
   LogOut,
   ShieldAlert,
   XCircle,
-  ExternalLink,
-  Sparkles,
   ArrowRight,
   Users,
   CheckCircle2,
@@ -23,8 +21,10 @@ import {
   EyeOff,
   LockKeyhole,
   Building2,
+  X,
+  AlertTriangle,
 } from "lucide-react";
-import { getApiBaseUrl } from "@/lib/api";
+import { getApiBaseUrl, formatApiError } from "@/lib/api";
 
 interface Invitation {
   id: string;
@@ -45,6 +45,7 @@ interface TeamMember {
   email: string;
   role: string;
   is_admin: boolean;
+  access_level?: string;
   created_at: string;
   slug: string;
 }
@@ -82,8 +83,59 @@ export default function AdminConsolePage() {
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
-  const [latestInvite, setLatestInvite] = useState<{ email: string; token: string; role: string } | null>(null);
   const [activeTab, setActiveTab] = useState<"invite" | "team">("invite");
+
+  // Interactive Toast State
+  const [toast, setToast] = useState<{
+    id: string;
+    type: "confirm" | "success" | "error" | "info";
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    confirmVariant?: "destructive" | "primary";
+    onConfirm?: () => void;
+  } | null>(null);
+
+  useEffect(() => {
+    if (toast && (toast.type === "success" || toast.type === "info")) {
+      const timer = setTimeout(() => {
+        setToast(null);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
+  // Invite Modal State
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [modalEmail, setModalEmail] = useState("");
+  const [modalRole, setModalRole] = useState<"advisor" | "officer">("advisor");
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalError, setModalError] = useState("");
+  const [modalSuccessInvite, setModalSuccessInvite] = useState<{
+    email: string;
+    token: string;
+    role: string;
+  } | null>(null);
+
+  function handleTriggerInvite() {
+    setModalEmail("");
+    setModalRole("advisor");
+    setModalError("");
+    setModalSuccessInvite(null);
+    setIsInviteModalOpen(true);
+  }
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setIsInviteModalOpen(false);
+      }
+    }
+    if (isInviteModalOpen) {
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }
+  }, [isInviteModalOpen]);
 
   async function fetchWorkspaceData(token: string) {
     try {
@@ -173,7 +225,7 @@ export default function AdminConsolePage() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.detail || "Authentication failed. Please check your email and password.");
+        throw new Error(formatApiError(data.detail, "Authentication failed. Please check your email and password."));
       }
 
       if (!data.is_admin) {
@@ -234,17 +286,12 @@ export default function AdminConsolePage() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.detail || "Failed to dispatch invitation.");
+        throw new Error(formatApiError(data.detail, "Failed to dispatch invitation."));
       }
 
       setFeedback({
         type: "success",
         message: `Invitation email dispatched to ${email}! The employee will receive a link to accept the invitation and set their password.`,
-      });
-      setLatestInvite({
-        email: email.trim(),
-        token: data.token,
-        role,
       });
       setEmail("");
       if (token) await fetchWorkspaceData(token);
@@ -258,13 +305,72 @@ export default function AdminConsolePage() {
     }
   }
 
-  async function handleRevokeInvite(invitationId: string, inviteEmail: string) {
-    if (!confirm(`Are you sure you want to revoke the onboarding invitation for ${inviteEmail}?`)) {
+  async function handleModalInvite(e: FormEvent) {
+    e.preventDefault();
+    setModalError("");
+    setModalLoading(true);
+
+    const token = localStorage.getItem("auth_token");
+    const workspaceSlug = currentUser?.workspace_slug;
+
+    if (!workspaceSlug) {
+      setModalError("Workspace not resolved. Please refresh or sign in again.");
+      setModalLoading(false);
       return;
     }
 
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/admin/invitations`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          email: modalEmail.trim(),
+          role: modalRole,
+          workspace_slug: workspaceSlug,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(formatApiError(data.detail, "Failed to dispatch invitation."));
+      }
+
+      setModalSuccessInvite({
+        email: modalEmail.trim(),
+        token: data.token,
+        role: modalRole,
+      });
+      setFeedback({
+        type: "success",
+        message: `Invitation email dispatched to ${modalEmail.trim()}! The employee will receive a link to accept the invitation and set their password.`,
+      });
+      setModalEmail("");
+      if (token) await fetchWorkspaceData(token);
+    } catch (err: any) {
+      setModalError(err.message || "An unexpected error occurred while sending the invitation.");
+    } finally {
+      setModalLoading(false);
+    }
+  }
+
+  function promptRevokeInvite(invitationId: string, inviteEmail: string) {
+    setToast({
+      id: `revoke-${invitationId}`,
+      type: "confirm",
+      title: "Revoke Onboarding Invitation",
+      message: `Are you sure you want to revoke the onboarding invitation for ${inviteEmail}?`,
+      confirmLabel: "Revoke Invitation",
+      confirmVariant: "destructive",
+      onConfirm: () => executeRevokeInvite(invitationId, inviteEmail),
+    });
+  }
+
+  async function executeRevokeInvite(invitationId: string, inviteEmail: string) {
     setActionInProgress(invitationId);
-    setFeedback(null);
+    setToast(null);
     const token = localStorage.getItem("auth_token");
 
     try {
@@ -275,17 +381,21 @@ export default function AdminConsolePage() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.detail || "Failed to revoke invitation.");
+        throw new Error(formatApiError(data.detail, "Failed to revoke invitation."));
       }
 
-      setFeedback({
+      setToast({
+        id: `revoke-success-${invitationId}`,
         type: "success",
+        title: "Invitation Revoked",
         message: `Invitation for ${inviteEmail} was successfully revoked.`,
       });
       if (token) await fetchWorkspaceData(token);
     } catch (err: any) {
-      setFeedback({
+      setToast({
+        id: `revoke-error-${invitationId}`,
         type: "error",
+        title: "Revocation Failed",
         message: err.message || "Failed to revoke invitation.",
       });
     } finally {
@@ -293,17 +403,21 @@ export default function AdminConsolePage() {
     }
   }
 
-  async function handleRemoveMember(memberId: string, memberName: string, memberEmail: string) {
-    if (
-      !confirm(
-        `Are you sure you want to remove ${memberName} (${memberEmail}) from the workspace? They will immediately lose access.`
-      )
-    ) {
-      return;
-    }
+  function promptRemoveMember(memberId: string, memberName: string, memberEmail: string) {
+    setToast({
+      id: `remove-${memberId}`,
+      type: "confirm",
+      title: "Remove Team Member",
+      message: `Are you sure you want to remove ${memberName} (${memberEmail}) from the workspace? They will immediately lose access.`,
+      confirmLabel: "Remove Member",
+      confirmVariant: "destructive",
+      onConfirm: () => executeRemoveMember(memberId, memberName, memberEmail),
+    });
+  }
 
+  async function executeRemoveMember(memberId: string, memberName: string, memberEmail: string) {
     setActionInProgress(memberId);
-    setFeedback(null);
+    setToast(null);
     const token = localStorage.getItem("auth_token");
 
     try {
@@ -314,17 +428,21 @@ export default function AdminConsolePage() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.detail || "Failed to remove team member.");
+        throw new Error(formatApiError(data.detail, "Failed to remove team member."));
       }
 
-      setFeedback({
+      setToast({
+        id: `remove-success-${memberId}`,
         type: "success",
+        title: "Member Removed",
         message: `${memberName} was removed from the workspace directory.`,
       });
       if (token) await fetchWorkspaceData(token);
     } catch (err: any) {
-      setFeedback({
+      setToast({
+        id: `remove-error-${memberId}`,
         type: "error",
+        title: "Removal Failed",
         message: err.message || "Failed to remove member.",
       });
     } finally {
@@ -430,7 +548,7 @@ export default function AdminConsolePage() {
                     type="email"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="admin@organization.com"
+                    placeholder="admin@company.com"
                     className="h-11 w-full rounded-xl border border-input bg-background pl-10 pr-3.5 text-xs font-normal text-foreground outline-none transition placeholder:text-muted-foreground/60 focus:border-primary focus:ring-2 focus:ring-primary/10"
                   />
                 </div>
@@ -561,6 +679,16 @@ export default function AdminConsolePage() {
               </button>
             </div>
 
+            {/* Quick Invite Button */}
+            <button
+              type="button"
+              onClick={handleTriggerInvite}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition cursor-pointer"
+            >
+              <UserPlus className="size-3.5" />
+              <span className="hidden sm:inline">Invite Member</span>
+            </button>
+
             {/* Sign Out */}
             <button
               onClick={handleSignOut}
@@ -575,77 +703,89 @@ export default function AdminConsolePage() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 w-full space-y-6">
-        {/* Executive Overview Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="rounded-2xl border border-border/80 bg-card/90 p-4 shadow-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
-              Workspace Organization
-            </span>
-            <p className="text-sm font-bold text-foreground mt-1 truncate">
-              {currentUser?.workspace_name}
-            </p>
-            <span className="inline-flex items-center gap-1.5 mt-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-              <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" /> Operational
-            </span>
-          </div>
+        {/* Real Dynamic Overview Stats */}
+        {(() => {
+          const pendingCount = invitations.filter((i) => i.status?.toLowerCase() === "pending").length;
+          const acceptedCount = invitations.filter((i) => i.status?.toLowerCase() === "accepted").length;
+          const revokedCount = invitations.filter((i) => i.status?.toLowerCase() === "revoked").length;
+          const officerCount = team.filter((m) => m.role?.toLowerCase() === "officer").length;
+          const advisorCount = team.filter((m) => m.role?.toLowerCase() === "advisor").length;
 
-          <div className="rounded-2xl border border-border/80 bg-card/90 p-4 shadow-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
-              Active Directory
-            </span>
-            <p className="text-sm font-bold text-foreground mt-1">
-              {team.length} {team.length === 1 ? "Member" : "Members"}
-            </p>
-            <span className="text-[11px] text-muted-foreground mt-1 block">
-              {team.filter((m) => m.is_admin).length} Administrator
-            </span>
-          </div>
+          return (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="rounded-2xl border border-border/80 bg-card/90 p-4 shadow-sm">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
+                  Workspace
+                </span>
+                <p className="text-sm font-bold text-foreground mt-1 truncate">
+                  {currentUser?.workspace_name || "Workspace"}
+                </p>
+                <span className="inline-flex items-center gap-1.5 mt-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                  <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Active Workspace
+                </span>
+              </div>
 
-          <div className="rounded-2xl border border-border/80 bg-card/90 p-4 shadow-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
-              Pending Onboarding
-            </span>
-            <p className="text-sm font-bold text-foreground mt-1">
-              {invitations.filter((i) => i.status === "pending").length} Invitations
-            </p>
-            <span className="text-[11px] text-muted-foreground mt-1 block">
-              7-day single-use TTL
-            </span>
-          </div>
+              <div className="rounded-2xl border border-border/80 bg-card/90 p-4 shadow-sm">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
+                  Active Directory
+                </span>
+                <p className="text-sm font-bold text-foreground mt-1">
+                  {team.length} {team.length === 1 ? "Member" : "Members"}
+                </p>
+                <span className="text-[11px] text-muted-foreground mt-1 block">
+                  {advisorCount} {advisorCount === 1 ? "Advisor" : "Advisors"}, {officerCount} {officerCount === 1 ? "Officer" : "Officers"}
+                </span>
+              </div>
 
-          <div className="rounded-2xl border border-border/80 bg-card/90 p-4 shadow-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
-              Access Architecture
-            </span>
-            <p className="text-sm font-bold text-foreground mt-1">
-              Role Segregation
-            </p>
-            <span className="text-[11px] text-muted-foreground mt-1 block">
-              Invite-First Zero-Trust
-            </span>
-          </div>
-        </div>
+              <div className="rounded-2xl border border-border/80 bg-card/90 p-4 shadow-sm">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
+                  Pending Onboarding
+                </span>
+                <p className="text-sm font-bold text-foreground mt-1">
+                  {pendingCount} {pendingCount === 1 ? "Invitation" : "Invitations"}
+                </p>
+                <span className="text-[11px] text-muted-foreground mt-1 block">
+                  {acceptedCount > 0 || revokedCount > 0
+                    ? `${acceptedCount} accepted, ${revokedCount} revoked`
+                    : "Awaiting employee acceptance"}
+                </span>
+              </div>
 
-        {/* Clean State Welcome Card (Displayed when workspace is freshly created) */}
+              <div className="rounded-2xl border border-border/80 bg-card/90 p-4 shadow-sm">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
+                  Compliance Officers
+                </span>
+                <p className="text-sm font-bold text-foreground mt-1">
+                  {officerCount} {officerCount === 1 ? "Officer" : "Officers"}
+                </p>
+                <span className="text-[11px] text-muted-foreground mt-1 block">
+                  {team.filter((m) => m.is_admin).length === 1 ? "1 Administrator" : `${team.filter((m) => m.is_admin).length} Administrators`}
+                </span>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Clean State Welcome Card (Displayed when no invitations sent yet) */}
         {invitations.length === 0 && (
-          <div className="rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/[0.05] via-primary/[0.02] to-transparent p-6 shadow-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border/60">
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
               <div>
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary mb-2">
-                  <Sparkles className="size-3.5" /> Workspace Initialized
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-2.5 py-0.5 text-xs font-semibold text-primary mb-2">
+                  <Building2 className="size-3.5" />
+                  <span>Workspace Initialized</span>
                 </div>
                 <h2 className="text-base font-bold text-foreground">
-                  Welcome to {currentUser?.workspace_name}
+                  Welcome to {currentUser?.workspace_name || "Workspace"}
                 </h2>
-                <p className="text-xs text-muted-foreground mt-0.5 max-w-xl">
-                  Your organization workspace is provisioned. As primary administrator, dispatch onboarding invitations below to assign locked roles for your team.
+                <p className="text-xs text-muted-foreground mt-1 max-w-xl leading-relaxed">
+                  Your organization workspace is provisioned. As primary administrator, invite compliance officers and financial advisors to begin reviewing and submitting documents.
                 </p>
               </div>
               <button
-                onClick={() => {
-                  const input = document.getElementById("invite-email-input");
-                  if (input) input.focus();
-                }}
+                type="button"
+                onClick={handleTriggerInvite}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition shadow-sm shrink-0 cursor-pointer"
               >
                 <UserPlus className="size-4" />
@@ -654,21 +794,21 @@ export default function AdminConsolePage() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4 text-xs">
-              <div className="rounded-xl border border-border/70 bg-card/80 p-3.5 space-y-1">
+              <div className="rounded-xl border border-border/70 bg-muted/20 p-3.5 space-y-1">
                 <span className="font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
                   <ShieldCheck className="size-4" /> Compliance Officers
                 </span>
                 <p className="text-muted-foreground text-[11px] leading-relaxed">
-                  Pre-assign compliance officers to grant review queue access, document approval/rejection authority, and immutable FINRA/SEC audit log inspection.
+                  Review queue access, document approval/rejection authority, and SEC/FINRA audit log inspection.
                 </p>
               </div>
 
-              <div className="rounded-xl border border-border/70 bg-card/80 p-3.5 space-y-1">
+              <div className="rounded-xl border border-border/70 bg-muted/20 p-3.5 space-y-1">
                 <span className="font-semibold text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
                   <Users className="size-4" /> Financial Advisors
                 </span>
                 <p className="text-muted-foreground text-[11px] leading-relaxed">
-                  Pre-assign advisors to allow drafting client presentations, running machine-verified policy scans, and submitting materials for compliance sign-off.
+                  Draft client communications, run pre-submission compliance checks, and track review status.
                 </p>
               </div>
             </div>
@@ -678,7 +818,7 @@ export default function AdminConsolePage() {
         {/* Global Feedback Banner */}
         {feedback && (
           <div
-            className={`rounded-2xl border p-4 text-xs font-medium flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm ${
+            className={`rounded-2xl border p-4 text-xs font-medium flex items-center justify-between gap-3 shadow-sm animate-in fade-in duration-150 ${
               feedback.type === "success"
                 ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-950 dark:text-emerald-300"
                 : "border-destructive/30 bg-destructive/10 text-destructive"
@@ -688,37 +828,14 @@ export default function AdminConsolePage() {
               <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>{feedback.message}</span>
             </div>
-            <div className="flex items-center gap-2 self-end sm:self-auto">
-              {latestInvite && (
-                <>
-                  <a
-                    href={`/accept-invite?token=${latestInvite.token}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition cursor-pointer"
-                  >
-                    <ExternalLink className="size-3.5" />
-                    <span>Test Onboarding Link</span>
-                  </a>
-                  <button
-                    onClick={() => copyInviteLink(latestInvite.token)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
-                  >
-                    {copiedToken === latestInvite.token ? (
-                      <>
-                        <Check className="size-3.5 text-emerald-600" />
-                        <span>Copied!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="size-3.5" />
-                        <span>Copy Link</span>
-                      </>
-                    )}
-                  </button>
-                </>
-              )}
-            </div>
+            <button
+              type="button"
+              onClick={() => setFeedback(null)}
+              className="rounded-lg p-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition cursor-pointer text-xs"
+              aria-label="Dismiss feedback"
+            >
+              ✕
+            </button>
           </div>
         )}
 
@@ -730,11 +847,11 @@ export default function AdminConsolePage() {
               <div className="flex items-center gap-2 mb-4">
                 <UserPlus className="size-4 text-primary" />
                 <h2 className="text-sm font-bold text-foreground">
-                  Dispatch Employee Invitation
+                  Invite Team Member
                 </h2>
               </div>
               <p className="text-xs text-muted-foreground mb-5 leading-relaxed">
-                Generate single-use, cryptographically signed invitation tokens with a 7-day expiration.
+                Invite a colleague by work email and assign their functional role in this workspace.
               </p>
 
               <form onSubmit={handleSendInvite} className="space-y-4">
@@ -751,14 +868,14 @@ export default function AdminConsolePage() {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="colleague@firm.com"
+                    placeholder="colleague@company.com"
                     className="w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-xs font-normal text-foreground placeholder:text-muted-foreground/60 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-foreground mb-1.5">
-                    Assigned institutional role
+                    Assigned role
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
@@ -796,7 +913,7 @@ export default function AdminConsolePage() {
                   disabled={loading || !email}
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-md shadow-primary/20 transition hover:bg-primary/90 disabled:opacity-50 cursor-pointer"
                 >
-                  {loading ? "Dispatching Invitation..." : "Send Secure Invitation Link →"}
+                  {loading ? "Sending Invitation..." : "Send Invitation Link →"}
                 </button>
               </form>
             </div>
@@ -807,10 +924,10 @@ export default function AdminConsolePage() {
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h2 className="text-sm font-bold text-foreground">
-                      Sent Invitations ({invitations.length})
+                      Invitations ({invitations.length})
                     </h2>
                     <p className="text-[11px] text-muted-foreground">
-                      Cryptographic single-use invitations with 7-day TTL
+                      Manage active, accepted, and revoked onboarding invitations
                     </p>
                   </div>
                 </div>
@@ -820,10 +937,18 @@ export default function AdminConsolePage() {
                     <div className="flex size-12 items-center justify-center rounded-2xl bg-muted/60 text-muted-foreground mb-3">
                       <Mail className="size-6" />
                     </div>
-                    <p className="text-xs font-semibold text-foreground">No pending invitations</p>
+                    <p className="text-xs font-semibold text-foreground">No invitations yet</p>
                     <p className="text-[11px] text-muted-foreground mt-1 max-w-sm">
-                      Use the invitation form to onboard your compliance officers and financial advisors.
+                      Use the invitation form to onboard compliance officers and financial advisors to {currentUser?.workspace_name || "your workspace"}.
                     </p>
+                    <button
+                      type="button"
+                      onClick={handleTriggerInvite}
+                      className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition shadow-sm cursor-pointer"
+                    >
+                      <UserPlus className="size-3.5" />
+                      <span>Invite First Team Member</span>
+                    </button>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -876,16 +1001,6 @@ export default function AdminConsolePage() {
 
                           {isPending && (
                             <div className="flex items-center gap-2 self-end sm:self-auto">
-                              <a
-                                href={`/accept-invite?token=${inv.token}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
-                                title="Open invitation link in a new tab"
-                              >
-                                <ExternalLink className="size-3.5" />
-                                <span>Test Link</span>
-                              </a>
                               <button
                                 onClick={() => copyInviteLink(inv.token)}
                                 className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
@@ -904,7 +1019,7 @@ export default function AdminConsolePage() {
                                 )}
                               </button>
                               <button
-                                onClick={() => handleRevokeInvite(inv.id, inv.email)}
+                                onClick={() => promptRevokeInvite(inv.id, inv.email)}
                                 disabled={actionInProgress === inv.id}
                                 className="inline-flex items-center gap-1 rounded-lg border border-destructive/20 bg-destructive/5 px-2.5 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/15 transition disabled:opacity-50 cursor-pointer"
                                 title="Revoke invitation"
@@ -918,7 +1033,7 @@ export default function AdminConsolePage() {
                           {isRevoked && (
                             <div className="flex items-center gap-2 self-end sm:self-auto">
                               <button
-                                onClick={() => handleRevokeInvite(inv.id, inv.email)}
+                                onClick={() => promptRevokeInvite(inv.id, inv.email)}
                                 disabled={actionInProgress === inv.id}
                                 className="inline-flex items-center gap-1 rounded-lg border border-destructive/20 bg-destructive/5 px-2.5 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/15 transition disabled:opacity-50 cursor-pointer"
                                 title="Permanently delete this revoked invitation record"
@@ -990,13 +1105,17 @@ export default function AdminConsolePage() {
                           </span>
                         </td>
                         <td className="py-3">
-                          {member.is_admin ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary">
-                              <KeyRound className="size-3" /> Administrator
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-foreground">
+                            {member.is_admin && <KeyRound className="size-3 text-primary" />}
+                            <span>
+                              {member.access_level ||
+                                (member.is_admin
+                                  ? "Workspace Administrator"
+                                  : member.role?.toLowerCase() === "officer"
+                                  ? "Compliance Officer"
+                                  : "Financial Advisor")}
                             </span>
-                          ) : (
-                            <span className="text-[11px] text-muted-foreground">Standard Member</span>
-                          )}
+                          </span>
                         </td>
                         <td className="py-3 text-muted-foreground">
                           {new Date(member.created_at).toLocaleDateString()}
@@ -1008,7 +1127,7 @@ export default function AdminConsolePage() {
                             </span>
                           ) : (
                             <button
-                              onClick={() => handleRemoveMember(member.id, member.name, member.email)}
+                              onClick={() => promptRemoveMember(member.id, member.name, member.email)}
                               disabled={actionInProgress === member.id}
                               className="inline-flex items-center gap-1 rounded-lg border border-destructive/20 bg-destructive/5 px-2.5 py-1 text-[11px] font-medium text-destructive hover:bg-destructive/15 transition disabled:opacity-50 cursor-pointer"
                             >
@@ -1026,6 +1145,256 @@ export default function AdminConsolePage() {
           </div>
         )}
       </main>
+
+      {/* Invite Team Member Modal */}
+      {isInviteModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-150"
+          onClick={() => setIsInviteModalOpen(false)}
+        >
+          <div
+            className="relative w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <UserPlus className="size-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-foreground">
+                    Invite Team Member
+                  </h3>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {currentUser?.workspace_name || "Workspace"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsInviteModalOpen(false)}
+                className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
+                aria-label="Close modal"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            {modalSuccessInvite ? (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs">
+                  <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-semibold mb-1">
+                    <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
+                    <span>Invitation Dispatched</span>
+                  </div>
+                  <p className="text-muted-foreground text-[11px] leading-relaxed">
+                    An onboarding link was generated for{" "}
+                    <span className="font-semibold text-foreground font-mono">
+                      {modalSuccessInvite.email}
+                    </span>{" "}
+                    as{" "}
+                    <span className="font-semibold text-foreground">
+                      {modalSuccessInvite.role === "officer" ? "Compliance Officer" : "Financial Advisor"}
+                    </span>
+                    .
+                  </p>
+                </div>
+
+                <div className="pt-2 border-t border-border flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModalSuccessInvite(null);
+                      setModalEmail("");
+                      setModalError("");
+                    }}
+                    className="text-xs text-primary hover:underline font-medium cursor-pointer"
+                  >
+                    + Invite another colleague
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsInviteModalOpen(false)}
+                    className="rounded-xl border border-border px-4 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleModalInvite} className="space-y-4">
+                {modalError && (
+                  <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs font-medium text-destructive flex items-start gap-2">
+                    <ShieldAlert className="size-4 shrink-0 mt-0.5" />
+                    <span>{modalError}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-foreground mb-1.5">
+                    Work email address
+                  </label>
+                  <input
+                    required
+                    autoFocus
+                    type="email"
+                    value={modalEmail}
+                    onChange={(e) => setModalEmail(e.target.value)}
+                    placeholder="colleague@company.com"
+                    className="w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-xs font-normal text-foreground placeholder:text-muted-foreground/60 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-foreground mb-1.5">
+                    Assigned role
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setModalRole("advisor")}
+                      className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition cursor-pointer ${
+                        modalRole === "advisor"
+                          ? "border-primary bg-primary/[0.06] text-primary"
+                          : "border-border bg-muted/20 text-muted-foreground hover:border-border/80"
+                      }`}
+                    >
+                      <Users className="size-4 mb-1" />
+                      <div className="font-semibold text-foreground text-xs">Advisor</div>
+                      <div className="text-[10px] text-muted-foreground">Draft & submit</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setModalRole("officer")}
+                      className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition cursor-pointer ${
+                        modalRole === "officer"
+                          ? "border-primary bg-primary/[0.06] text-primary"
+                          : "border-border bg-muted/20 text-muted-foreground hover:border-border/80"
+                      }`}
+                    >
+                      <ShieldCheck className="size-4 mb-1" />
+                      <div className="font-semibold text-foreground text-xs">Officer</div>
+                      <div className="text-[10px] text-muted-foreground">Review & approve</div>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex items-center justify-end gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsInviteModalOpen(false)}
+                    className="rounded-xl border border-border px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={modalLoading || !modalEmail}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition shadow-sm disabled:opacity-50 cursor-pointer"
+                  >
+                    {modalLoading ? (
+                      <>
+                        <span className="size-3.5 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
+                        <span>Sending...</span>
+                      </>
+                    ) : (
+                      <span>Send Invitation</span>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Interactive Toast Notification (Non-blocking confirmation & feedback) */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-md w-full sm:w-[420px] animate-in slide-in-from-bottom-5 fade-in duration-200">
+          <div
+            className={`rounded-2xl border p-4 shadow-2xl backdrop-blur-xl ${
+              toast.type === "confirm"
+                ? "border-amber-500/30 bg-card/95 text-foreground"
+                : toast.type === "success"
+                ? "border-emerald-500/30 bg-card/95 text-foreground"
+                : toast.type === "error"
+                ? "border-destructive/30 bg-card/95 text-destructive"
+                : "border-border bg-card/95 text-foreground"
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <div className="shrink-0 mt-0.5">
+                {toast.type === "confirm" && (
+                  <div className="flex size-8 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="size-4" />
+                  </div>
+                )}
+                {toast.type === "success" && (
+                  <div className="flex size-8 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 className="size-4" />
+                  </div>
+                )}
+                {toast.type === "error" && (
+                  <div className="flex size-8 items-center justify-center rounded-xl bg-destructive/15 text-destructive">
+                    <ShieldAlert className="size-4" />
+                  </div>
+                )}
+                {toast.type === "info" && (
+                  <div className="flex size-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <CheckCircle2 className="size-4" />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-bold leading-tight tracking-tight text-foreground">
+                    {toast.title}
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => setToast(null)}
+                    className="rounded-lg p-1 text-muted-foreground hover:text-foreground transition cursor-pointer"
+                    aria-label="Dismiss toast"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+                <p className="text-xs mt-1 leading-relaxed text-muted-foreground">
+                  {toast.message}
+                </p>
+
+                {toast.type === "confirm" && (
+                  <div className="mt-3 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setToast(null)}
+                      className="rounded-xl border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (toast.onConfirm) toast.onConfirm();
+                      }}
+                      className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold shadow-sm transition cursor-pointer ${
+                        toast.confirmVariant === "destructive"
+                          ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          : "bg-primary text-primary-foreground hover:bg-primary/90"
+                      }`}
+                    >
+                      {toast.confirmLabel || "Confirm"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

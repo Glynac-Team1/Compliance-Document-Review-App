@@ -11,11 +11,10 @@ import {
   Building2,
   AlertCircle,
   ArrowLeft,
-  Sparkles,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { getApiBaseUrl } from "@/lib/api";
+import { getApiBaseUrl, formatApiError } from "@/lib/api";
 
 function LeftBrandedBrandMark() {
   return (
@@ -49,47 +48,6 @@ function MobileBrandMark() {
   );
 }
 
-function RoleOption({
-  selected,
-  title,
-  description,
-  onClick,
-}: {
-  selected: boolean;
-  title: string;
-  description: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex flex-1 items-start gap-3 rounded-xl border p-3 text-left transition ${
-        selected ? "border-primary bg-primary/[0.06] shadow-sm" : "border-border bg-card hover:border-primary/40"
-      }`}
-      aria-pressed={selected}
-    >
-      <span
-        className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border ${
-          selected ? "border-primary bg-primary" : "border-input"
-        }`}
-      >
-        {selected && (
-          <Check className="size-2.5 text-primary-foreground" strokeWidth={3} />
-        )}
-      </span>
-      <span>
-        <span className="block text-xs font-semibold text-foreground">
-          {title}
-        </span>
-        <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
-          {description}
-        </span>
-      </span>
-    </button>
-  );
-}
-
 interface ActiveSession {
   name: string;
   email: string;
@@ -104,8 +62,6 @@ function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [mode, setMode] = useState<"login" | "signup">("login");
-  const [role, setRole] = useState<"Financial Advisor" | "Compliance Officer">("Financial Advisor");
   const [workspaceSlug, setWorkspaceSlug] = useState("northstar");
   const [workspaceName, setWorkspaceName] = useState("Northstar Compliance");
   const [showPassword, setShowPassword] = useState(false);
@@ -183,16 +139,12 @@ function LoginContent() {
     const name = formData.get("name") || "New User";
 
     try {
-      const endpoint = mode === "login" ? "/auth/login" : "/auth/signup";
-
-      const response = await fetch(`${getApiBaseUrl()}${endpoint}`, {
+      const response = await fetch(`${getApiBaseUrl()}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email,
           password,
-          name,
-          role: role === "Financial Advisor" ? "advisor" : "officer",
           workspace_slug: workspaceSlug,
         }),
       });
@@ -200,7 +152,7 @@ function LoginContent() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || "Authentication failed");
+        throw new Error(formatApiError(data.detail, "Authentication failed"));
       }
 
       localStorage.setItem("auth_token", data.token);
@@ -253,7 +205,7 @@ function LoginContent() {
         {/* Central Narrative */}
         <div className="relative z-10 max-w-xl pb-8 xl:pb-16">
           <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-primary-foreground/15 bg-primary-foreground/[0.07] px-3 py-1.5 text-[11px] font-medium text-primary-foreground/80">
-            <Sparkles className="size-3.5" />
+            <ShieldCheck className="size-3.5" />
             Intelligent review, built for trust
           </div>
           <h1 className="max-w-lg text-balance text-4xl sm:text-5xl lg:text-6xl font-semibold leading-[1.08] tracking-[-0.04em]">
@@ -331,14 +283,10 @@ function LoginContent() {
               </div>
 
               <h2 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">
-                {mode === "login"
-                  ? "Sign in to your workspace"
-                  : "Create your workspace account"}
+                Sign in to your workspace
               </h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                {mode === "login"
-                  ? `Enter your credentials for workspace '${workspaceSlug}'.`
-                  : "Register as a Financial Advisor to submit client documents."}
+                Enter your credentials for workspace &lsquo;{workspaceSlug}&rsquo;.
               </p>
             </div>
 
@@ -382,7 +330,9 @@ function LoginContent() {
                   <span>
                     {activeSession.is_admin
                       ? "Continue to Admin Console"
-                      : `Continue to Workspace (${activeSession.slug})`}
+                      : activeSession.role === "officer"
+                      ? "Continue to Compliance Workspace"
+                      : "Continue to Advisor Workspace"}
                   </span>
                   <ArrowRight className="size-3.5" />
                 </button>
@@ -391,42 +341,6 @@ function LoginContent() {
                 </p>
               </div>
             )}
-
-            {/* Mode Switcher Tabs */}
-            <div
-              className="mb-6 flex rounded-lg bg-muted p-1"
-              role="tablist"
-              aria-label="Authentication mode"
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === "login"}
-                onClick={() => {
-                  setMode("login");
-                  setToast("");
-                }}
-                className={`flex-1 rounded-md py-2 text-xs font-semibold transition cursor-pointer ${
-                  mode === "login" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Log In
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === "signup"}
-                onClick={() => {
-                  setMode("signup");
-                  setToast("");
-                }}
-                className={`flex-1 rounded-md py-2 text-xs font-semibold transition cursor-pointer ${
-                  mode === "signup" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Sign Up
-              </button>
-            </div>
 
             {/* Error / Status Toast */}
             {toast && (
@@ -439,21 +353,7 @@ function LoginContent() {
             <form
               onSubmit={handleSubmit}
               className="flex flex-col gap-4"
-              key={mode}
             >
-              {mode === "signup" && (
-                <label className="flex flex-col gap-1.5 text-xs font-semibold text-foreground">
-                  Full name
-                  <input
-                    required
-                    name="name"
-                    type="text"
-                    placeholder="Jordan Davis, CFA"
-                    className="h-11 rounded-xl border border-input bg-background px-3.5 text-xs font-normal text-foreground outline-none transition placeholder:text-muted-foreground/60 focus:border-primary focus:ring-2 focus:ring-primary/10"
-                  />
-                </label>
-              )}
-
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-foreground">
                 Corporate email address
                 <input
@@ -468,17 +368,15 @@ function LoginContent() {
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-foreground">
                 <div className="flex items-center justify-between">
                   <span>Password</span>
-                  {mode === "login" && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setToast("Please contact your workspace administrator to reset or update your password.")
-                      }
-                      className="text-[11px] font-semibold text-primary hover:underline cursor-pointer"
-                    >
-                      Forgot password?
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setToast("Please contact your workspace administrator to reset or update your password.")
+                    }
+                    className="text-[11px] font-semibold text-primary hover:underline cursor-pointer"
+                  >
+                    Forgot password?
+                  </button>
                 </div>
                 <div className="relative">
                   <input
@@ -502,37 +400,6 @@ function LoginContent() {
                   </button>
                 </div>
               </label>
-
-              {mode === "signup" && (
-                <fieldset className="flex flex-col gap-2 pt-1">
-                  <legend className="text-xs font-semibold text-foreground">Your role</legend>
-                  <div className="flex gap-2">
-                    <RoleOption
-                      selected={role === "Financial Advisor"}
-                      title="Financial Advisor"
-                      description="Manage client materials"
-                      onClick={() => setRole("Financial Advisor")}
-                    />
-                    <RoleOption
-                      selected={role === "Compliance Officer"}
-                      title="Compliance Officer"
-                      description="Review and approve"
-                      onClick={() => setRole("Compliance Officer")}
-                    />
-                  </div>
-
-                  {role === "Compliance Officer" && (
-                    <div className="mt-2 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300">
-                      <div className="flex items-start gap-2">
-                        <AlertCircle className="size-4 shrink-0 mt-0.5" />
-                        <span className="leading-relaxed">
-                          <strong>Admin Invite Required:</strong> To maintain strict regulatory security, Compliance Officers cannot self-register. Please click the invitation link sent to your work email by your administrator.
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </fieldset>
-              )}
 
               {/* Workspace Switcher */}
               <div className="flex items-center justify-between rounded-xl border border-border/70 bg-muted/40 px-3 py-2 text-xs mt-1">
@@ -566,7 +433,7 @@ function LoginContent() {
                   <span className="size-4 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
                 ) : (
                   <>
-                    <span>{mode === "login" ? "Sign In" : "Create Advisor Account"}</span>
+                    <span>Sign In to Workspace</span>
                     <ArrowRight className="size-4" />
                   </>
                 )}
@@ -574,9 +441,9 @@ function LoginContent() {
             </form>
 
             {/* Navigation Footers */}
-            <div className="mt-6 border-t border-border/60 pt-4 flex flex-col items-center gap-2 text-center text-xs text-muted-foreground">
+            <div className="mt-5 border-t border-border/60 pt-4 flex flex-col items-center gap-2 text-center text-xs text-muted-foreground">
               <p>
-                Received an onboarding invitation email?{" "}
+                Have an onboarding invitation?{" "}
                 <Link
                   href="/accept-invite"
                   className="font-semibold text-primary hover:underline"
@@ -584,18 +451,24 @@ function LoginContent() {
                   Enter Setup Link
                 </Link>
               </p>
-              <p>
-                Workspace Administrator?{" "}
+              <div className="flex items-center gap-4 text-xs">
                 <Link
                   href="/admin"
                   className="font-semibold text-primary hover:underline"
                 >
                   Admin Console
                 </Link>
-              </p>
+                <span>•</span>
+                <Link
+                  href="/"
+                  className="font-semibold text-primary hover:underline"
+                >
+                  Register New Firm
+                </Link>
+              </div>
             </div>
 
-            <div className="mt-5 flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
+            <div className="mt-4 flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
               <LockKeyhole className="size-3.5 text-primary" />
               Your data is encrypted and protected
             </div>

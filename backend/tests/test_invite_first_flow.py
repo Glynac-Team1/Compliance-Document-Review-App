@@ -143,7 +143,22 @@ class TestInvitationEndpoints:
             )
             assert resp.status_code == 403
             data = resp.json()
-            assert "Compliance Officer accounts require an administrator invitation" in data["detail"]
+            assert "Self-registration is disabled" in data["detail"]
+
+    async def test_public_advisor_signup_blocked_without_token(self):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/auth/signup",
+                json={
+                    "name": "Rogue Advisor",
+                    "email": "rogue.advisor@example.com",
+                    "password": "StrongPassword!2026",
+                    "role": "advisor",
+                },
+            )
+            assert resp.status_code == 403
+            data = resp.json()
+            assert "Self-registration is disabled" in data["detail"]
 
     async def test_lookup_workspaces_empty(self):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

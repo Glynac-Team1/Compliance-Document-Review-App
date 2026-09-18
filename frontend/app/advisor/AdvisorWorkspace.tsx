@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Submissions from './Submissions'
+import UploadModal from './UploadModal'
 import UserNav from '@/components/UserNav'
 import NotificationPopover from '@/components/NotificationPopover'
 import { useLiveSync } from '@/lib/useLiveSync'
@@ -254,8 +255,7 @@ export default function AdvisorWorkspace({ slug: _slug }: AdvisorWorkspaceProps)
   const [screen, setScreen] = useState('Submissions')
   const [syncTrigger, setSyncTrigger] = useState(0)
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
-  const fileInput = useRef<HTMLInputElement>(null)
-  const [uploaded, setUploaded] = useState(false)
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
 
   const {
     notifications,
@@ -267,51 +267,6 @@ export default function AdvisorWorkspace({ slug: _slug }: AdvisorWorkspaceProps)
       setSyncTrigger((prev) => prev + 1)
     },
   })
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    const formData = new FormData()
-    formData.append('file', file)
-
-    try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        toast.error('Authentication Required', 'No authentication token found. Please log in again.')
-        return
-      }
-
-      const response = await fetch(`${getApiBaseUrl()}/documents`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Upload failed')
-      }
-
-      const data = await response.json()
-
-      toast.success(
-        'Document Submitted',
-        `${data.filename || file.name} has been queued for compliance review.`
-      )
-
-      setSyncTrigger((prev) => prev + 1)
-      setUploaded(true)
-      setTimeout(() => setUploaded(false), 3000)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown upload error occurred'
-      toast.error('Upload Failed', message)
-    } finally {
-      if (fileInput.current) fileInput.current.value = ''
-    }
-  }
 
   const nav = ['Submissions', 'Resources', 'Support']
 
@@ -363,7 +318,7 @@ export default function AdvisorWorkspace({ slug: _slug }: AdvisorWorkspaceProps)
       <div className="mx-auto flex max-w-[1440px]">
         {screen === 'Submissions' && (
           <Submissions
-            onUpload={() => fileInput.current?.click()}
+            onUpload={() => setIsUploadModalOpen(true)}
             refreshTrigger={syncTrigger}
             selectedDocId={selectedDocId}
           />
@@ -371,14 +326,12 @@ export default function AdvisorWorkspace({ slug: _slug }: AdvisorWorkspaceProps)
         {screen === 'Resources' && <Resources />}
         {screen === 'Support' && <Support />}
 
-        <input ref={fileInput} className="hidden" type="file" onChange={handleFileUpload} />
+        <UploadModal
+          isOpen={isUploadModalOpen}
+          onClose={() => setIsUploadModalOpen(false)}
+          onSuccess={() => setSyncTrigger((prev) => prev + 1)}
+        />
       </div>
-
-      {uploaded && (
-        <div className="fixed bottom-5 left-1/2 z-30 -translate-x-1/2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 shadow-lg">
-          Document selected and ready for review.
-        </div>
-      )}
     </main>
   )
 }

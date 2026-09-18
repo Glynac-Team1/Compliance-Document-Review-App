@@ -1,6 +1,6 @@
 import enum, uuid
 from datetime import datetime
-from sqlalchemy import Enum, ForeignKey, String, DateTime, Boolean
+from sqlalchemy import Enum, ForeignKey, String, DateTime, Boolean, CheckConstraint, Index, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from pgvector.sqlalchemy import Vector
@@ -50,6 +50,11 @@ class User(Base):
     workspace_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("workspaces.id"), nullable=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("uq_workspace_single_admin", "workspace_id", unique=True, postgresql_where=text("is_admin = TRUE")),
+        CheckConstraint("is_admin = FALSE OR role = 'officer'", name="chk_admin_must_be_officer"),
+    )
 
 
 ######## Document handling Model ########

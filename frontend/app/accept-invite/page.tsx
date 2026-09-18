@@ -12,14 +12,13 @@ import {
   ArrowRight,
   Eye,
   EyeOff,
-  Sparkles,
   Mail,
   Lock,
   Building2,
   KeyRound,
   Shield,
 } from "lucide-react";
-import { getApiBaseUrl } from "@/lib/api";
+import { getApiBaseUrl, formatApiError } from "@/lib/api";
 
 interface InvitationData {
   valid: boolean;
@@ -88,7 +87,7 @@ function AcceptInviteContent() {
         const data = await res.json();
 
         if (!res.ok) {
-          throw new Error(data.detail || "Invalid or expired invitation link.");
+          throw new Error(formatApiError(data.detail, "Invalid or expired invitation link."));
         }
 
         setInvitation(data);
@@ -132,7 +131,7 @@ function AcceptInviteContent() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.detail || "Failed to accept invitation.");
+        throw new Error(formatApiError(data.detail, "Failed to accept invitation."));
       }
 
       // Store credentials & active workspace
@@ -342,7 +341,7 @@ function AcceptInviteContent() {
             </div>
           </div>
           <div className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-            <Sparkles className="size-3.5" />
+            <CheckCircle2 className="size-3.5" />
             <span>Verified Token</span>
           </div>
         </div>

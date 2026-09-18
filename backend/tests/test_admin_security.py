@@ -146,3 +146,129 @@ class TestAdminSecurityAndAccessControl:
             assert data["is_admin"] is True
             assert data["workspace_slug"] == slug
             assert data["slug"].startswith(slug)
+
+    async def test_single_admin_constraint_rejects_duplicate_workspace_admin(self):
+        """Verifies PostgreSQL partial unique index uq_workspace_single_admin prevents 2 admins in 1 workspace."""
+        ws_id = uuid.uuid4()
+        async with AsyncSessionLocal() as db:
+            ws = Workspace(id=ws_id, name="Integrity Test Workspace", slug=f"ws-int-{ws_id.hex[:6]}")
+            db.add(ws)
+            await db.commit()
+
+            admin1 = User(
+                id=uuid.uuid4(),
+                name="Primary Admin",
+                email=f"admin1-{uuid.uuid4().hex[:6]}@example.com",
+                password_hash=hash_password("Pass#1234!"),
+                role=Role.officer,
+                workspace_id=ws_id,
+                is_admin=True,
+            )
+            db.add(admin1)
+            await db.commit()
+
+            # Attempt to add a 2nd admin to the same workspace
+            admin2 = User(
+                id=uuid.uuid4(),
+                name="Rogue Secondary Admin",
+                email=f"admin2-{uuid.uuid4().hex[:6]}@example.com",
+                password_hash=hash_password("Pass#1234!"),
+                role=Role.officer,
+                workspace_id=ws_id,
+                is_admin=True,
+            )
+            db.add(admin2)
+            with pytest.raises(Exception) as exc_info:
+                await db.commit()
+            assert "uq_workspace_single_admin" in str(exc_info.value).lower() or "unique" in str(exc_info.value).lower()
+
+    async def test_advisor_cannot_be_admin_check_constraint(self):
+        """Verifies PostgreSQL check constraint chk_admin_must_be_officer prevents advisor from having is_admin=True."""
+        ws_id = uuid.uuid4()
+        async with AsyncSessionLocal() as db:
+            ws = Workspace(id=ws_id, name="Check Constraint Workspace", slug=f"ws-chk-{ws_id.hex[:6]}")
+            db.add(ws)
+            await db.commit()
+
+            advisor = User(
+                id=uuid.uuid4(),
+                name="Invalid Admin Advisor",
+                email=f"advisor-bad-{uuid.uuid4().hex[:6]}@example.com",
+                password_hash=hash_password("Pass#1234!"),
+                role=Role.advisor,
+                workspace_id=ws_id,
+                is_admin=True,
+            )
+            db.add(advisor)
+            with pytest.raises(Exception) as exc_info:
+                await db.commit()
+            assert "chk_admin_must_be_officer" in str(exc_info.value).lower() or "check" in str(exc_info.value).lower()
+
+    async def test_accept_invitation_always_enforces_is_admin_false(self):
+        """Verifies that accepting an invitation to a workspace resets user.is_admin = False."""
+        ws_owner_id = uuid.uuid4()
+        target_ws_id = uuid.uuid4()
+        prev_admin_user_id = uuid.uuid4()
+        user_email = f"invited-prev-admin-{uuid.uuid4().hex[:6]}@example.com"
+        token_str = f"test-token-{uuid.uuid4().hex}"
+
+        async with AsyncSessionLocal() as db:
+            # Target workspace with legitimate owner
+            ws = Workspace(id=target_ws_id, name="Destination Firm", slug=f"firm-dest-{target_ws_id.hex[:6]}")
+            db.add(ws)
+            await db.commit()
+
+            owner = User(
+                id=ws_owner_id,
+                name="Sole Owner",
+                email=f"owner-{ws_owner_id.hex[:6]}@destination.com",
+                password_hash=hash_password("Pass#1234!"),
+                role=Role.officer,
+                workspace_id=target_ws_id,
+                is_admin=True,
+            )
+            db.add(owner)
+
+            # User who was previously admin in another workspace (no workspace_id now)
+            prev_admin = User(
+                id=prev_admin_user_id,
+                name="Former Admin Elsewhere",
+                email=user_email,
+                password_hash=hash_password("Pass#1234!"),
+                role=Role.officer,
+                workspace_id=None,
+                is_admin=True,
+            )
+            db.add(prev_admin)
+
+            # Invitation issued for them to join Destination Firm as compliance officer
+            inv = WorkspaceInvitation(
+                workspace_id=target_ws_id,
+                email=user_email,
+                role=Role.officer,
+                token=token_str,
+                status=InvitationStatus.pending,
+                expires_at=datetime.now(timezone.utc) + timedelta(days=2),
+            )
+            db.add(inv)
+            await db.commit()
+
+        # Accept invitation
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/invitations/accept",
+                json={
+                    "token": token_str,
+                    "password": "NewSecurePassword#2026!",
+                    "name": "Former Admin Joining",
+                },
+            )
+            assert resp.status_code == 200
+
+        # Verify in DB: user.is_admin MUST BE False!
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(User).where(User.id == prev_admin_user_id))
+            updated_user = result.scalar_one()
+            assert updated_user.workspace_id == target_ws_id
+            assert updated_user.is_admin is False
+            assert updated_user.role == Role.officer

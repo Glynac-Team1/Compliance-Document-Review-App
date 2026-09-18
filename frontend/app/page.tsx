@@ -24,7 +24,7 @@ import {
   ArrowUpRight,
   UserPlus,
 } from "lucide-react";
-import { getApiBaseUrl } from "@/lib/api";
+import { getApiBaseUrl, formatApiError } from "@/lib/api";
 
 function BrandMark() {
   return (
@@ -66,7 +66,6 @@ export default function LandingPage() {
 
   // Create Workspace Form State
   const [createWsName, setCreateWsName] = useState("");
-  const [createWsSlug, setCreateWsSlug] = useState("");
   const [createAdminName, setCreateAdminName] = useState("");
   const [createAdminEmail, setCreateAdminEmail] = useState("");
   const [createPassword, setCreatePassword] = useState("");
@@ -156,13 +155,40 @@ export default function LandingPage() {
     setCreateLoading(true);
     setCreateError(null);
 
+    // Client-side password policy validation
+    if (createPassword.length < 8) {
+      setCreateError("Password must be at least 8 characters long.");
+      setCreateLoading(false);
+      return;
+    }
+    if (!/[A-Z]/.test(createPassword)) {
+      setCreateError("Password must contain at least one uppercase letter (A-Z).");
+      setCreateLoading(false);
+      return;
+    }
+    if (!/[a-z]/.test(createPassword)) {
+      setCreateError("Password must contain at least one lowercase letter (a-z).");
+      setCreateLoading(false);
+      return;
+    }
+    if (!/\d/.test(createPassword)) {
+      setCreateError("Password must contain at least one number (0-9).");
+      setCreateLoading(false);
+      return;
+    }
+    if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?/~`]/.test(createPassword)) {
+      setCreateError("Password must contain at least one special symbol (!@#$%^&*...).");
+      setCreateLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch(`${getApiBaseUrl()}/auth/workspaces`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workspace_name: createWsName.trim(),
-          workspace_slug: createWsSlug.trim().toLowerCase(),
+          workspace_slug: null,
           admin_name: createAdminName.trim(),
           admin_email: createAdminEmail.trim().toLowerCase(),
           admin_password: createPassword,
@@ -171,7 +197,7 @@ export default function LandingPage() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.detail || "Failed to create workspace.");
+        throw new Error(formatApiError(data.detail, "Failed to create workspace."));
       }
 
       localStorage.setItem("auth_token", data.token);
@@ -184,7 +210,7 @@ export default function LandingPage() {
 
       router.push("/admin");
     } catch (err: any) {
-      setCreateError(err.message || "Failed to create workspace.");
+      setCreateError(err instanceof Error ? err.message : formatApiError(err, "Failed to create workspace."));
     } finally {
       setCreateLoading(false);
     }
@@ -413,39 +439,14 @@ export default function LandingPage() {
                           type="text"
                           required
                           value={createWsName}
-                          onChange={(e) => {
-                            setCreateWsName(e.target.value);
-                            if (!createWsSlug || createWsSlug === createWsName.toLowerCase().replace(/[^a-z0-9]/g, "-")) {
-                              setCreateWsSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "-"));
-                            }
-                          }}
+                          onChange={(e) => setCreateWsName(e.target.value)}
                           placeholder="e.g. Apex Wealth Partners"
                           className="w-full rounded-xl border border-input bg-background/80 px-3 py-2 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
                         />
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="block font-semibold text-foreground">
-                            Workspace URL Slug
-                          </label>
-                          {createWsSlug && (
-                            <span className="text-[10px] font-mono text-primary font-medium">
-                              app/{createWsSlug}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center rounded-xl border border-input bg-background/80 px-3 py-2 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition">
-                          <span className="text-muted-foreground font-mono text-[11px] mr-1">app.compliance/</span>
-                          <input
-                            type="text"
-                            required
-                            value={createWsSlug}
-                            onChange={(e) => setCreateWsSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
-                            placeholder="apex-wealth"
-                            className="w-full bg-transparent text-foreground font-mono text-xs focus:outline-none"
-                          />
-                        </div>
+                        <p className="mt-1 text-[11px] text-muted-foreground flex items-center gap-1.5">
+                          <ShieldCheck className="size-3 text-primary shrink-0" />
+                          <span>Organization identifier will be generated server-side upon registration.</span>
+                        </p>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

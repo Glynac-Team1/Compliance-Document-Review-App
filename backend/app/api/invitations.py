@@ -75,11 +75,17 @@ async def create_invitation(
     db: AsyncSession = Depends(get_db),
 ):
     """Workspace Admin invites an employee by email with a locked pre-assigned role."""
-    # Find workspace
-    ws_result = await db.execute(select(Workspace).where(Workspace.slug == req.workspace_slug))
-    workspace = ws_result.scalar_one_or_none()
+    # Find workspace - strictly scoped to administrator's assigned workspace
+    workspace = None
+    if admin.workspace_id:
+        ws_result = await db.execute(select(Workspace).where(Workspace.id == admin.workspace_id))
+        workspace = ws_result.scalar_one_or_none()
+
     if not workspace:
-        # Auto-create if not present
+        ws_result = await db.execute(select(Workspace).where(Workspace.slug == req.workspace_slug))
+        workspace = ws_result.scalar_one_or_none()
+
+    if not workspace:
         workspace = Workspace(name="Northstar Compliance", slug=req.workspace_slug)
         db.add(workspace)
         await db.commit()
@@ -232,6 +238,7 @@ async def accept_invitation(req: AcceptInvitationRequest, db: AsyncSession = Dep
         user.password_hash = hash_password(req.password)
         user.role = invitation.role
         user.workspace_id = workspace.id
+        user.is_admin = False  # Employee invitations strictly confer standard membership
     else:
         # Create brand new user with locked admin-assigned role
         user = User(
@@ -360,12 +367,22 @@ async def list_workspace_team(
     result = await db.execute(query)
     members = []
     for u, ws_slug in result.all():
+        if u.is_admin:
+            access_level = "Workspace Administrator"
+        elif u.role == Role.officer:
+            access_level = "Compliance Officer"
+        elif u.role == Role.advisor:
+            access_level = "Financial Advisor"
+        else:
+            access_level = u.role.value.capitalize()
+
         members.append({
             "id": str(u.id),
             "name": u.name,
             "email": u.email,
             "role": u.role.value,
             "is_admin": u.is_admin,
+            "access_level": access_level,
             "created_at": u.created_at.isoformat(),
             "slug": generate_user_slug(u.name, u.email, ws_slug or "northstar"),
         })

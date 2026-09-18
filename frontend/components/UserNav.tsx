@@ -98,8 +98,6 @@ export default function UserNav({ variant = 'header', collapsed = false, onLogou
   const displayName = user?.name || 'User'
   const displayEmail = user?.email || 'Authenticated'
   const displayRole = user?.role === 'officer' ? 'Compliance Officer' : 'Financial Advisor'
-  const workspaceSlug = user?.slug || ''
-  const workspacePath = workspaceSlug ? `/${user?.role === 'officer' ? 'compliance-officer' : 'advisor'}/${workspaceSlug}` : ''
   const initials = displayName
     .split(' ')
     .filter(Boolean)
@@ -139,9 +137,6 @@ export default function UserNav({ variant = 'header', collapsed = false, onLogou
                     <Building2 className="size-3 text-primary shrink-0" />
                     <span className="truncate">{user.workspace_name}</span>
                   </div>
-                )}
-                {workspacePath && (
-                  <p className="mt-1 font-mono text-[10px] text-muted-foreground truncate">{workspacePath}</p>
                 )}
                 <div className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-primary">
                   <ShieldCheck className="size-3.5" />
@@ -197,9 +192,6 @@ export default function UserNav({ variant = 'header', collapsed = false, onLogou
               </div>
               <p className="mt-2 text-sm font-semibold text-foreground truncate">{displayName}</p>
               <p className="text-xs text-muted-foreground truncate">{displayEmail}</p>
-              {workspacePath && (
-                <p className="mt-1 font-mono text-[10px] text-muted-foreground truncate">{workspacePath}</p>
-              )}
               <div className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-primary">
                 <ShieldCheck className="size-3.5" />
                 <span>{displayRole}</span>
@@ -257,9 +249,6 @@ export default function UserNav({ variant = 'header', collapsed = false, onLogou
                 <Building2 className="size-3 text-primary shrink-0" />
                 <span className="truncate">{user.workspace_name}</span>
               </div>
-            )}
-            {workspacePath && (
-              <p className="mt-1 font-mono text-[10px] text-muted-foreground truncate">{workspacePath}</p>
             )}
             <div className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-primary">
               <ShieldCheck className="size-3.5" />
