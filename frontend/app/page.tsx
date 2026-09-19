@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, FormEvent } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ShieldCheck,
+  Shield,
   Building2,
   FileCheck2,
   Search,
@@ -12,20 +13,15 @@ import {
   CheckCircle2,
   Lock,
   Zap,
-  Eye,
-  EyeOff,
   HelpCircle,
   Mail,
   ChevronDown,
   Copy,
   Check,
-  Shield,
   Activity,
   ArrowUpRight,
-  UserPlus,
-  X,
 } from "lucide-react";
-import { getApiBaseUrl, formatApiError } from "@/lib/api";
+import { getApiBaseUrl } from "@/lib/api";
 
 function BrandMark() {
   return (
@@ -41,62 +37,12 @@ function BrandMark() {
   );
 }
 
-function getPasswordStrength(pass: string): { score: number; label: string; color: string } {
-  if (!pass) return { score: 0, label: "", color: "bg-muted" };
-  let score = 0;
-  if (pass.length >= 8) score++;
-  if (/[A-Z]/.test(pass)) score++;
-  if (/[a-z]/.test(pass)) score++;
-  if (/[0-9]/.test(pass)) score++;
-  if (/[^A-Za-z0-9]/.test(pass)) score++;
-
-  if (score <= 2) return { score, label: "Weak", color: "bg-destructive" };
-  if (score <= 4) return { score, label: "Moderate", color: "bg-amber-500" };
-  return { score: 5, label: "Strong", color: "bg-emerald-500" };
-}
-
 export default function LandingPage() {
   const router = useRouter();
 
   // Remembered session state
   const [detectedSlug, setDetectedSlug] = useState<string | null>(null);
   const [detectedWorkspaceName, setDetectedWorkspaceName] = useState<string | null>(null);
-
-  // Visibility of the right-side Workspace Hub (appears only when create workspace / lookup is clicked)
-  const [showWorkspaceHub, setShowWorkspaceHub] = useState(false);
-
-  // Active tab in hero workspace hub: 'create' | 'lookup'
-  const [activeTab, setActiveTab] = useState<"create" | "lookup">("create");
-
-  function handleOpenWorkspaceHub(tab: "create" | "lookup" = "create") {
-    setShowWorkspaceHub(true);
-    setActiveTab(tab);
-    setTimeout(() => {
-      const el = document.getElementById("workspace-hub");
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }, 60);
-  }
-
-  // Create Workspace Form State
-  const [createWsName, setCreateWsName] = useState("");
-  const [createAdminName, setCreateAdminName] = useState("");
-  const [createAdminEmail, setCreateAdminEmail] = useState("");
-  const [createPassword, setCreatePassword] = useState("");
-  const [createLoading, setCreateLoading] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [showCreatePass, setShowCreatePass] = useState(false);
-
-  // Email workspace detection State
-  const [lookupEmail, setLookupEmail] = useState("");
-  const [lookupLoading, setLookupLoading] = useState(false);
-  const [lookupResult, setLookupResult] = useState<{
-    found: boolean;
-    workspaces?: { name: string; slug: string; role: string }[];
-    invitation?: { workspace_name: string; role: string; token: string };
-    message?: string;
-  } | null>(null);
 
   // FAQ Interactive Accordion State
   const [openFaq, setOpenFaq] = useState<number | null>(0);
@@ -141,98 +87,6 @@ export default function LandingPage() {
     setTimeout(() => setCopiedEmail(false), 2500);
   }
 
-  async function handleLookupWorkspace(e: FormEvent) {
-    e.preventDefault();
-    if (!lookupEmail.trim() || lookupLoading) return;
-    setLookupLoading(true);
-    setLookupResult(null);
-
-    try {
-      const res = await fetch(`${getApiBaseUrl()}/auth/lookup-workspaces`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: lookupEmail.trim() }),
-      });
-      const data = await res.json();
-      setLookupResult(data);
-    } catch {
-      setLookupResult({
-        found: false,
-        message: "Unable to connect to discovery service. Please verify your connection.",
-      });
-    } finally {
-      setLookupLoading(false);
-    }
-  }
-
-  async function handleCreateWorkspace(e: FormEvent) {
-    e.preventDefault();
-    setCreateLoading(true);
-    setCreateError(null);
-
-    // Client-side password policy validation
-    if (createPassword.length < 8) {
-      setCreateError("Password must be at least 8 characters long.");
-      setCreateLoading(false);
-      return;
-    }
-    if (!/[A-Z]/.test(createPassword)) {
-      setCreateError("Password must contain at least one uppercase letter (A-Z).");
-      setCreateLoading(false);
-      return;
-    }
-    if (!/[a-z]/.test(createPassword)) {
-      setCreateError("Password must contain at least one lowercase letter (a-z).");
-      setCreateLoading(false);
-      return;
-    }
-    if (!/\d/.test(createPassword)) {
-      setCreateError("Password must contain at least one number (0-9).");
-      setCreateLoading(false);
-      return;
-    }
-    if (!/[\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e]/.test(createPassword)) {
-      setCreateError("Password must contain at least one special symbol (!@#$%^&*...).");
-      setCreateLoading(false);
-      return;
-    }
-
-    try {
-      const res = await fetch(`${getApiBaseUrl()}/auth/workspaces`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workspace_name: createWsName.trim(),
-          workspace_slug: null,
-          admin_name: createAdminName.trim(),
-          admin_email: createAdminEmail.trim().toLowerCase(),
-          admin_password: createPassword,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(formatApiError(data.detail, "Failed to create workspace."));
-      }
-
-      localStorage.setItem("auth_token", data.token);
-      localStorage.setItem("user_role", data.role);
-      localStorage.setItem("user_slug", data.slug);
-      localStorage.setItem("last_workspace_slug", data.workspace_slug);
-      localStorage.setItem("workspace_name", data.workspace_name);
-      localStorage.setItem("is_admin", "true");
-      sessionStorage.setItem("admin_authenticated", "true");
-
-      router.push("/admin");
-    } catch (err: any) {
-      setCreateError(err instanceof Error ? err.message : formatApiError(err, "Failed to create workspace."));
-    } finally {
-      setCreateLoading(false);
-    }
-  }
-
-  const passStrength = getPasswordStrength(createPassword);
-
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col selection:bg-primary/20 relative overflow-x-clip">
       {/* Institutional dot grid with soft radial vignette */}
@@ -271,13 +125,13 @@ export default function LandingPage() {
             >
               Sign In
             </Link>
-            <button
-              onClick={() => handleOpenWorkspaceHub("create")}
+            <Link
+              href="/create-workspace"
               className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 transition active:scale-95 cursor-pointer"
             >
               <Building2 className="size-3.5" />
               <span>Create Workspace</span>
-            </button>
+            </Link>
           </div>
         </div>
       </header>
@@ -306,411 +160,25 @@ export default function LandingPage() {
         </div>
 
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          {showWorkspaceHub ? (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-14 items-start animate-in fade-in duration-300">
-              {/* Left Headline Column */}
-              <div className="lg:col-span-6 space-y-6 pt-2">
-                <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-semibold text-primary">
-                  <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-                  SEC Rule 206(4)-1 & FINRA 2210 Heuristics
-                </div>
-
-                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground leading-[1.08]">
-                  Institutional compliance review, complete audit assurance.
-                </h1>
-
-                <p className="text-sm sm:text-base text-foreground/85 dark:text-foreground/90 font-normal leading-relaxed max-w-xl">
-                  Northstar enables financial teams to review client materials with machine-verified precision, strict role governance, and real-time concurrency locks built for regulatory scrutiny.
-                </p>
-
-                {/* Workspace Auto-Detection Callout */}
-                {detectedSlug && (
-                  <div className="rounded-2xl border border-primary/30 bg-primary/[0.06] dark:bg-primary/10 backdrop-blur-sm p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shrink-0 shadow-sm">
-                        <Building2 className="size-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold text-primary dark:text-sky-400 uppercase tracking-wider">Active Workspace Detected</p>
-                        <p className="text-base font-extrabold text-foreground truncate">{detectedWorkspaceName}</p>
-                      </div>
-                    </div>
-                    <Link
-                      href={`/login?workspace=${detectedSlug}`}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition shrink-0 active:scale-95"
-                    >
-                      <span>Enter Workspace</span>
-                      <ArrowRight className="size-3.5" />
-                    </Link>
-                  </div>
-                )}
-
-                {/* Confidence Points with Crisp High-Contrast Typography */}
-                <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-medium text-foreground/90 dark:text-foreground/95">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
-                    <span>Single-use cryptographic invitations</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
-                    <span>No unverified officer self-signups</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
-                    <span>Live SSE document conflict prevention</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
-                    <span>Immutable audit log for inspections</span>
-                  </div>
-                </div>
-
-                {/* Quick Actions */}
-                <div className="pt-3 flex flex-wrap items-center gap-3">
-                  <button
-                    onClick={() => {
-                      setActiveTab("create");
-                      const el = document.getElementById("workspace-hub");
-                      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-                    }}
-                    className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-xs font-semibold text-primary-foreground shadow-md shadow-primary/20 hover:bg-primary/90 transition active:scale-95 cursor-pointer"
-                  >
-                    <Building2 className="size-4" />
-                    <span>Create Your Workspace</span>
-                  </button>
-                  <button
-                    onClick={() => scrollToSection("features")}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-border px-4 py-2.5 text-xs font-semibold text-foreground hover:bg-muted transition active:scale-95 cursor-pointer"
-                  >
-                    <span>Explore Capabilities</span>
-                    <ChevronDown className="size-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Right Column: First-Time User Interactive Workspace Hub */}
-              <div id="workspace-hub" className="lg:col-span-6 scroll-mt-24">
-                <div className="rounded-3xl border border-border/80 bg-card/85 backdrop-blur-xl p-6 sm:p-7 shadow-xl shadow-primary/[0.04] transition-all">
-                  {/* Top Bar with Title and Close Button */}
-                  <div className="flex items-center justify-between pb-3.5 mb-4 border-b border-border/60">
-                    <div className="flex items-center gap-2">
-                      <div className="flex size-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <Building2 className="size-4" />
-                      </div>
-                      <div>
-                        <p className="text-xs font-bold text-foreground">Workspace Provisioning</p>
-                        <p className="text-[10px] text-muted-foreground">Direct tenant onboarding</p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowWorkspaceHub(false)}
-                      aria-label="Close workspace registration box"
-                      className="flex size-7 items-center justify-center rounded-lg border border-border/70 text-muted-foreground hover:text-foreground hover:bg-muted transition active:scale-95 cursor-pointer"
-                    >
-                      <X className="size-4" />
-                    </button>
-                  </div>
-
-                  {/* Segmented Tab Switcher */}
-                  <div className="grid grid-cols-2 gap-1 rounded-2xl border border-border bg-muted/40 p-1 mb-6">
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab("create")}
-                      className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-xl transition-all ${
-                        activeTab === "create"
-                          ? "bg-card text-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      <UserPlus className="size-3.5" />
-                      <span>Create Workspace</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab("lookup")}
-                      className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-xl transition-all ${
-                        activeTab === "lookup"
-                          ? "bg-card text-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      <Search className="size-3.5" />
-                      <span>Find My Team</span>
-                    </button>
-                  </div>
-
-                  {activeTab === "create" ? (
-                    /* 1. Create Workspace Onboarding Form */
-                    <div className="space-y-4">
-                      <div>
-                        <h2 className="text-base font-bold tracking-tight text-foreground">
-                          Register Organization Workspace
-                        </h2>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Set up an isolated regulatory domain for your firm and assign your master administrator.
-                        </p>
-                      </div>
-
-                      {createError && (
-                        <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive font-medium flex items-center justify-between">
-                          <span>{createError}</span>
-                          <button
-                            type="button"
-                            onClick={() => setCreateError(null)}
-                            className="font-bold opacity-70 hover:opacity-100 ml-2"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      )}
-
-                      <form onSubmit={handleCreateWorkspace} className="space-y-3 text-xs">
-                        <div>
-                          <label className="block font-semibold text-foreground mb-1">
-                            Firm / Organization Name
-                          </label>
-                          <input
-                            type="text"
-                            required
-                            value={createWsName}
-                            onChange={(e) => setCreateWsName(e.target.value)}
-                            placeholder="e.g. Apex Wealth Partners"
-                            className="w-full rounded-xl border border-input bg-background/80 px-3 py-2 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
-                          />
-                          <p className="mt-1 text-[11px] text-muted-foreground flex items-center gap-1.5">
-                            <ShieldCheck className="size-3 text-primary shrink-0" />
-                            <span>Organization identifier will be generated server-side upon registration.</span>
-                          </p>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label className="block font-semibold text-foreground mb-1">
-                              Administrator Name
-                            </label>
-                            <input
-                              type="text"
-                              required
-                              value={createAdminName}
-                              onChange={(e) => setCreateAdminName(e.target.value)}
-                              placeholder="Alex Morgan, CCO"
-                              className="w-full rounded-xl border border-input bg-background/80 px-3 py-2 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block font-semibold text-foreground mb-1">
-                              Corporate Work Email
-                            </label>
-                            <input
-                              type="email"
-                              required
-                              value={createAdminEmail}
-                              onChange={(e) => setCreateAdminEmail(e.target.value)}
-                              placeholder="alex@apexwealth.com"
-                              className="w-full rounded-xl border border-input bg-background/80 px-3 py-2 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
-                            />
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="flex items-center justify-between mb-1">
-                            <label className="block font-semibold text-foreground">
-                              Master Password
-                            </label>
-                            {createPassword && (
-                              <span className={`text-[10px] font-semibold ${
-                                passStrength.label === "Strong"
-                                  ? "text-emerald-600 dark:text-emerald-400"
-                                  : passStrength.label === "Moderate"
-                                  ? "text-amber-600 dark:text-amber-400"
-                                  : "text-destructive"
-                              }`}>
-                                {passStrength.label}
-                              </span>
-                            )}
-                          </div>
-                          <div className="relative">
-                            <input
-                              type={showCreatePass ? "text" : "password"}
-                              required
-                              value={createPassword}
-                              onChange={(e) => setCreatePassword(e.target.value)}
-                              placeholder="Min 8 chars, uppercase, lowercase, number, symbol"
-                              className="w-full rounded-xl border border-input bg-background/80 px-3 py-2 pr-9 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setShowCreatePass(!showCreatePass)}
-                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                            >
-                              {showCreatePass ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                            </button>
-                          </div>
-
-                          {createPassword && (
-                            <div className="mt-2 flex gap-1 h-1">
-                              {[1, 2, 3, 4, 5].map((level) => (
-                                <div
-                                  key={level}
-                                  className={`flex-1 rounded-full transition-all ${
-                                    level <= passStrength.score ? passStrength.color : "bg-muted"
-                                  }`}
-                                />
-                              ))}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="pt-2">
-                          <button
-                            type="submit"
-                            disabled={createLoading}
-                            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-md shadow-primary/20 hover:bg-primary/90 transition active:scale-[0.99] disabled:opacity-50 cursor-pointer"
-                          >
-                            {createLoading ? "Provisioning Organization..." : "Launch Organization Workspace →"}
-                          </button>
-                        </div>
-
-                        <p className="text-[11px] text-center text-muted-foreground pt-1">
-                          Already have a workspace?{" "}
-                          <button
-                            type="button"
-                            onClick={() => setActiveTab("lookup")}
-                            className="font-semibold text-primary hover:underline"
-                          >
-                            Find your team
-                          </button>{" "}
-                          or{" "}
-                          <Link href="/login" className="font-semibold text-primary hover:underline">
-                            Sign In
-                          </Link>
-                        </p>
-                      </form>
-                    </div>
-                  ) : (
-                    /* 2. Find Existing Workspace Tab */
-                    <div className="space-y-4">
-                      <div>
-                        <h2 className="text-base font-bold tracking-tight text-foreground">
-                          Find Your Organization Workspace
-                        </h2>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Enter your work email to discover which workspace you belong to or accept a pending invitation.
-                        </p>
-                      </div>
-
-                      <form onSubmit={handleLookupWorkspace} className="space-y-3">
-                        <div>
-                          <label className="block text-xs font-semibold text-foreground mb-1">
-                            Corporate Work Email
-                          </label>
-                          <div className="relative">
-                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                            <input
-                              type="email"
-                              required
-                              value={lookupEmail}
-                              onChange={(e) => setLookupEmail(e.target.value)}
-                              placeholder="colleague@firm.com"
-                              className="w-full rounded-xl border border-input bg-background/80 pl-9 pr-3 py-2 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
-                            />
-                          </div>
-                        </div>
-
-                        <button
-                          type="submit"
-                          disabled={lookupLoading || !lookupEmail.trim()}
-                          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-foreground text-background px-4 py-2.5 text-xs font-semibold hover:bg-foreground/90 transition active:scale-[0.99] disabled:opacity-50 cursor-pointer"
-                        >
-                          {lookupLoading ? "Searching Directory..." : "Discover My Workspace"}
-                          <Search className="size-3.5" />
-                        </button>
-                      </form>
-
-                      {lookupResult && (
-                        <div className="rounded-xl border border-border bg-muted/40 p-4 text-xs transition-all">
-                          {lookupResult.found ? (
-                            <div className="space-y-2.5">
-                              <p className="font-semibold text-emerald-600 dark:text-emerald-400">
-                                Workspace discovered:
-                              </p>
-                              {lookupResult.workspaces?.map((ws) => (
-                                <div key={ws.slug} className="flex items-center justify-between pt-1 border-t border-border/60">
-                                  <div>
-                                    <span className="font-bold text-foreground block">{ws.name}</span>
-                                    <span className="text-[10px] text-muted-foreground uppercase">{ws.role}</span>
-                                  </div>
-                                  <Link
-                                    href={`/login?workspace=${ws.slug}`}
-                                    className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition"
-                                  >
-                                    <span>Sign in</span>
-                                    <ArrowRight className="size-3" />
-                                  </Link>
-                                </div>
-                              ))}
-                              {lookupResult.invitation && (
-                                <div className="flex items-center justify-between border-t border-border/60 pt-2.5">
-                                  <div>
-                                    <span className="font-semibold text-foreground block">
-                                      {lookupResult.invitation.workspace_name}
-                                    </span>
-                                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-                                      Pending Invite: {lookupResult.invitation.role}
-                                    </span>
-                                  </div>
-                                  <Link
-                                    href={`/accept-invite?token=${lookupResult.invitation.token}`}
-                                    className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition"
-                                  >
-                                    <span>Accept Invite</span>
-                                    <ArrowRight className="size-3" />
-                                  </Link>
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="space-y-2">
-                              <p className="text-muted-foreground">
-                                {lookupResult.message || "No active workspace was found for this email address."}
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => setActiveTab("create")}
-                                className="text-primary hover:underline font-semibold"
-                              >
-                                Create a new organization workspace instead →
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            /* Centered Hero View when workspace hub is closed */
-            <div className="max-w-4xl mx-auto text-center flex flex-col items-center space-y-6 pt-4 animate-in fade-in duration-300">
-              <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3.5 py-1 text-xs font-semibold text-primary">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-14 items-center">
+            {/* Left Headline Column */}
+            <div className="lg:col-span-6 space-y-6 pt-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-semibold text-primary">
                 <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
                 SEC Rule 206(4)-1 & FINRA 2210 Heuristics
               </div>
 
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground leading-[1.08] max-w-3xl">
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground leading-[1.08]">
                 Institutional compliance review, complete audit assurance.
               </h1>
 
-              <p className="text-sm sm:text-base text-foreground/85 dark:text-foreground/90 font-normal leading-relaxed max-w-2xl">
+              <p className="text-sm sm:text-base text-foreground/85 dark:text-foreground/90 font-normal leading-relaxed max-w-xl">
                 Northstar enables financial teams to review client materials with machine-verified precision, strict role governance, and real-time concurrency locks built for regulatory scrutiny.
               </p>
 
               {/* Workspace Auto-Detection Callout */}
               {detectedSlug && (
-                <div className="w-full max-w-xl rounded-2xl border border-primary/30 bg-primary/[0.06] dark:bg-primary/10 backdrop-blur-sm p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm text-left">
+                <div className="rounded-2xl border border-primary/30 bg-primary/[0.06] dark:bg-primary/10 backdrop-blur-sm p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shrink-0 shadow-sm">
                       <Building2 className="size-4" />
@@ -730,8 +198,8 @@ export default function LandingPage() {
                 </div>
               )}
 
-              {/* Confidence Points */}
-              <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-xs font-medium text-foreground/90 dark:text-foreground/95 text-left max-w-lg">
+              {/* Confidence Points with Crisp High-Contrast Typography */}
+              <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-medium text-foreground/90 dark:text-foreground/95">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
                   <span>Single-use cryptographic invitations</span>
@@ -751,31 +219,71 @@ export default function LandingPage() {
               </div>
 
               {/* Quick Actions */}
-              <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
-                <button
-                  onClick={() => handleOpenWorkspaceHub("create")}
+              <div className="pt-3 flex flex-wrap items-center gap-3">
+                <Link
+                  href="/create-workspace"
                   className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-primary/90 transition active:scale-95 cursor-pointer"
                 >
                   <Building2 className="size-4" />
                   <span>Create Workspace</span>
-                </button>
-                <button
-                  onClick={() => handleOpenWorkspaceHub("lookup")}
+                  <ArrowRight className="size-4" />
+                </Link>
+                <Link
+                  href={detectedSlug ? `/login?workspace=${detectedSlug}` : "/login"}
                   className="inline-flex items-center gap-2 rounded-xl border border-border bg-card/60 backdrop-blur-sm px-4 py-3 text-sm font-semibold text-foreground hover:bg-muted transition active:scale-95 cursor-pointer"
                 >
                   <Search className="size-4" />
                   <span>Find My Workspace</span>
-                </button>
-                <button
-                  onClick={() => scrollToSection("features")}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-transparent px-4 py-3 text-sm font-semibold text-muted-foreground hover:text-foreground transition active:scale-95 cursor-pointer"
-                >
-                  <span>Explore Capabilities</span>
-                  <ChevronDown className="size-4" />
-                </button>
+                </Link>
               </div>
             </div>
-          )}
+
+            {/* Right Column: Hero Compliance Visual Card in place of registration component */}
+            <div className="lg:col-span-6 relative">
+              <div className="relative rounded-3xl border border-border/80 bg-card/85 backdrop-blur-xl p-3.5 sm:p-4 shadow-2xl shadow-primary/[0.08] transition-all group overflow-hidden">
+                {/* Visual frame containing 3D compliance shield image */}
+                <div className="relative rounded-2xl overflow-hidden border border-border/70 bg-muted/20 aspect-square max-w-[500px] mx-auto">
+                  <img
+                    src="/hero-compliance.jpg"
+                    alt="Northstar Institutional Document Review Engine"
+                    className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                  />
+
+                  {/* Gradient Overlay for subtle text contrast on floating pills */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-background/85 via-transparent to-background/25 pointer-events-none" />
+
+                  {/* Floating Badge 1 (Top Left): Live Concurrency Lock */}
+                  <div className="absolute top-4 left-4 rounded-xl border border-border/80 bg-card/90 backdrop-blur-md px-3 py-2 shadow-lg flex items-center gap-2.5">
+                    <span className="size-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                    <div>
+                      <p className="text-[11px] font-bold text-foreground leading-none">Live SSE Stream</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Concurrency Lock Active</p>
+                    </div>
+                  </div>
+
+                  {/* Floating Badge 2 (Bottom Right): Verified Heuristic Scanning */}
+                  <div className="absolute bottom-4 right-4 rounded-xl border border-border/80 bg-card/90 backdrop-blur-md px-3.5 py-2 shadow-lg flex items-center gap-2.5">
+                    <div className="flex size-7 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shrink-0">
+                      <ShieldCheck className="size-4" strokeWidth={2.4} />
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-bold text-foreground leading-none">FINRA 2210 & SEC 206(4)-1</p>
+                      <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium mt-0.5">Automated Heuristic Pass</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sub-bar with institutional security attributes */}
+                <div className="mt-3 pt-2.5 border-t border-border/60 flex items-center justify-between px-2 text-[11px] text-muted-foreground">
+                  <div className="flex items-center gap-1.5 font-semibold text-foreground">
+                    <Lock className="size-3.5 text-primary" />
+                    <span>Single-Use Cryptographic Auth</span>
+                  </div>
+                  <span className="font-mono text-[10px] text-muted-foreground/80">SHA-256 Ledger Verified</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
       {/* Core Capabilities Section with Isolated Stacking Context & Transparent Blue Circle */}
@@ -813,13 +321,13 @@ export default function LandingPage() {
               </p>
               <div className="mt-5 pt-4 border-t border-border/60 flex items-center justify-between text-[11px]">
                 <span className="font-semibold text-emerald-600 dark:text-emerald-400">FINRA 2210 Heuristics</span>
-                <button
-                  onClick={() => handleOpenWorkspaceHub("create")}
+                <Link
+                  href="/create-workspace"
                   className="font-semibold text-primary hover:underline inline-flex items-center gap-1 cursor-pointer"
                 >
                   <span>Test in workspace</span>
                   <ArrowUpRight className="size-3" />
-                </button>
+                </Link>
               </div>
             </div>
 
@@ -984,13 +492,13 @@ export default function LandingPage() {
                 </div>
 
                 <div className="flex flex-col gap-2.5 pt-1">
-                  <button
-                    onClick={() => handleOpenWorkspaceHub("create")}
+                  <Link
+                    href="/create-workspace"
                     className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition active:scale-95 cursor-pointer"
                   >
                     <span>Create Organization Workspace</span>
                     <ArrowRight className="size-3.5" />
-                  </button>
+                  </Link>
                   <Link
                     href="/login"
                     className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-2.5 text-xs font-semibold text-foreground hover:bg-muted transition active:scale-95"
@@ -1021,18 +529,18 @@ export default function LandingPage() {
             </span>
           </div>
           <div className="flex items-center gap-5 font-medium">
-            <button
-              onClick={() => handleOpenWorkspaceHub("create")}
+            <Link
+              href="/create-workspace"
               className="hover:text-foreground cursor-pointer transition"
             >
               Create Workspace
-            </button>
-            <button
-              onClick={() => handleOpenWorkspaceHub("lookup")}
+            </Link>
+            <Link
+              href="/create-workspace"
               className="hover:text-foreground cursor-pointer transition"
             >
               Find Team
-            </button>
+            </Link>
             <Link href="/login" className="hover:text-foreground transition">
               Sign In
             </Link>
