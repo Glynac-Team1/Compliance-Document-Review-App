@@ -15,6 +15,7 @@ from app.core.security import (
     generate_secure_token,
 )
 from app.api.auth import generate_user_slug
+from app.services.email import email_service
 
 router = APIRouter()
 
@@ -136,9 +137,17 @@ async def create_invitation(
     await db.commit()
     await db.refresh(invitation)
 
+    # Dispatch the transactional invitation email via Brevo
+    dispatch_res = await email_service.send_invitation_email(
+        recipient_email=invitation.email,
+        role=invitation.role.value,
+        workspace_name=workspace.name,
+        token=invitation.token,
+    )
+
     invite_url = f"/accept-invite?token={invitation.token}"
     return {
-        "message": f"Invitation successfully created for {req.email}",
+        "message": f"Invitation successfully dispatched to {req.email}",
         "email": invitation.email,
         "role": invitation.role.value,
         "workspace": workspace.name,
@@ -146,6 +155,8 @@ async def create_invitation(
         "token": invitation.token,
         "invite_url": invite_url,
         "expires_at": invitation.expires_at.isoformat(),
+        "email_dispatched": dispatch_res.success,
+        "delivery_mode": dispatch_res.mode,
     }
 
 
@@ -346,6 +357,70 @@ async def revoke_invitation(
     inv.status = InvitationStatus.revoked
     await db.commit()
     return {"message": f"Invitation for {inv.email} has been revoked.", "id": str(inv.id), "status": "revoked"}
+
+
+@router.post("/admin/invitations/{invitation_id}/resend")
+async def resend_invitation(
+    invitation_id: str,
+    admin: User = Depends(require_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Resends an invitation email for a pending invitation with renewed 7-day expiration."""
+    try:
+        inv_uuid = uuid.UUID(invitation_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid invitation ID format.",
+        )
+
+    result = await db.execute(
+        select(WorkspaceInvitation, Workspace)
+        .join(Workspace, WorkspaceInvitation.workspace_id == Workspace.id)
+        .where(WorkspaceInvitation.id == inv_uuid)
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found.",
+        )
+
+    inv, workspace = row
+    if admin.workspace_id and inv.workspace_id != admin.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot manage invitations outside your workspace.",
+        )
+
+    if inv.status == InvitationStatus.accepted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This invitation has already been accepted.",
+        )
+
+    # Renew 7-day expiration and ensure pending status
+    inv.expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    inv.status = InvitationStatus.pending
+    await db.commit()
+    await db.refresh(inv)
+
+    # Dispatch fresh Brevo invitation email
+    dispatch_res = await email_service.send_invitation_email(
+        recipient_email=inv.email,
+        role=inv.role.value,
+        workspace_name=workspace.name,
+        token=inv.token,
+    )
+
+    return {
+        "message": f"Invitation email resent to {inv.email}.",
+        "id": str(inv.id),
+        "email": inv.email,
+        "expires_at": inv.expires_at.isoformat(),
+        "email_dispatched": dispatch_res.success,
+        "delivery_mode": dispatch_res.mode,
+    }
 
 
 @router.get("/admin/team")
