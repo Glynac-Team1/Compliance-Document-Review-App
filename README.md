@@ -141,6 +141,18 @@ flowchart TD
 
 Full rationale for each choice is in [`docs/technical-implementation-plan.md §4`](./docs/technical-implementation-plan.md#4-tech-stack-by-track).
 
+## Continuous Integration and Branch Protection
+
+The repository CI workflow runs for pull requests targeting `main` and for pushes to
+`main`. It validates Python linting, Alembic migrations against temporary PostgreSQL
+and pgvector, backend and worker tests, frontend linting/type checking/tests/build,
+and all application Docker images through Compose.
+
+See [`docs/ci-cd.md`](./docs/ci-cd.md) for the feature-branch workflow, the exact
+local validation commands, required branch protection settings, and the checks that
+must pass before merging. There is no deployment workflow until a production hosting
+target and its protected credentials are established.
+
 ---
 
 ## Getting Started
