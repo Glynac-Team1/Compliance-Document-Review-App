@@ -7,7 +7,6 @@ import {
   FileText,
   CheckCircle2,
   Loader2,
-  Shield,
   FileSpreadsheet,
   FileCheck2,
   RefreshCw,
@@ -256,11 +255,8 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
                     <span className="text-[10px] text-muted-foreground block mt-0.5">Fee & Return Schedules</span>
                   </div>
                 </div>
-                <div className="flex items-center justify-between pt-1 text-[11px] text-muted-foreground">
+                <div className="pt-1 text-[11px] text-muted-foreground">
                   <span>Maximum file size: <strong>10 MB</strong></span>
-                  <span className="inline-flex items-center gap-1 text-primary">
-                    <Shield className="size-3" /> Tenant Encrypted
-                  </span>
                 </div>
               </div>
 
