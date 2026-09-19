@@ -163,17 +163,12 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-14 items-center">
             {/* Left Headline Column */}
             <div className="lg:col-span-6 space-y-6 pt-2">
-              <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-semibold text-primary">
-                <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-                SEC Rule 206(4)-1 & FINRA 2210 Heuristics
-              </div>
-
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground leading-[1.08]">
                 Institutional compliance review, complete audit assurance.
               </h1>
 
               <p className="text-sm sm:text-base text-foreground/85 dark:text-foreground/90 font-normal leading-relaxed max-w-xl">
-                Northstar enables financial teams to review client materials with machine-verified precision, strict role governance, and real-time concurrency locks built for regulatory scrutiny.
+                Northstar enables financial teams to review client materials, coordinate team approvals, and maintain a complete audit history.
               </p>
 
               {/* Workspace Auto-Detection Callout */}
@@ -202,19 +197,19 @@ export default function LandingPage() {
               <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-medium text-foreground/90 dark:text-foreground/95">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
-                  <span>Single-use cryptographic invitations</span>
+                  <span>Direct team invitations</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
-                  <span>No unverified officer self-signups</span>
+                  <span>Role-based access control</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
-                  <span>Live SSE document conflict prevention</span>
+                  <span>Simultaneous review conflict prevention</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
-                  <span>Immutable audit log for inspections</span>
+                  <span>Document history & audit trail</span>
                 </div>
               </div>
 
@@ -238,49 +233,18 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* Right Column: Hero Compliance Visual Card in place of registration component */}
-            <div className="lg:col-span-6 relative">
-              <div className="relative rounded-3xl border border-border/80 bg-card/85 backdrop-blur-xl p-3.5 sm:p-4 shadow-2xl shadow-primary/[0.08] transition-all group overflow-hidden">
-                {/* Visual frame containing 3D compliance shield image */}
-                <div className="relative rounded-2xl overflow-hidden border border-border/70 bg-muted/20 aspect-square max-w-[500px] mx-auto">
-                  <img
-                    src="/hero-compliance.jpg"
-                    alt="Northstar Institutional Document Review Engine"
-                    className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
-                  />
-
-                  {/* Gradient Overlay for subtle text contrast on floating pills */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-background/85 via-transparent to-background/25 pointer-events-none" />
-
-                  {/* Floating Badge 1 (Top Left): Live Concurrency Lock */}
-                  <div className="absolute top-4 left-4 rounded-xl border border-border/80 bg-card/90 backdrop-blur-md px-3 py-2 shadow-lg flex items-center gap-2.5">
-                    <span className="size-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                    <div>
-                      <p className="text-[11px] font-bold text-foreground leading-none">Live SSE Stream</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">Concurrency Lock Active</p>
-                    </div>
-                  </div>
-
-                  {/* Floating Badge 2 (Bottom Right): Verified Heuristic Scanning */}
-                  <div className="absolute bottom-4 right-4 rounded-xl border border-border/80 bg-card/90 backdrop-blur-md px-3.5 py-2 shadow-lg flex items-center gap-2.5">
-                    <div className="flex size-7 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shrink-0">
-                      <ShieldCheck className="size-4" strokeWidth={2.4} />
-                    </div>
-                    <div>
-                      <p className="text-[11px] font-bold text-foreground leading-none">FINRA 2210 & SEC 206(4)-1</p>
-                      <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium mt-0.5">Automated Heuristic Pass</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Sub-bar with institutional security attributes */}
-                <div className="mt-3 pt-2.5 border-t border-border/60 flex items-center justify-between px-2 text-[11px] text-muted-foreground">
-                  <div className="flex items-center gap-1.5 font-semibold text-foreground">
-                    <Lock className="size-3.5 text-primary" />
-                    <span>Single-Use Cryptographic Auth</span>
-                  </div>
-                  <span className="font-mono text-[10px] text-muted-foreground/80">SHA-256 Ledger Verified</span>
-                </div>
+            {/* Right Column: Hero Compliance Visual fading cleanly into background */}
+            <div className="lg:col-span-6 relative flex items-center justify-center">
+              <div className="relative w-full max-w-[480px] aspect-square flex items-center justify-center">
+                <img
+                  src="/hero-compliance.jpg"
+                  alt="Northstar Document Review"
+                  className="w-full h-full object-contain pointer-events-none select-none transition-transform duration-700 hover:scale-105"
+                  style={{
+                    maskImage: "radial-gradient(circle at center, black 40%, transparent 75%)",
+                    WebkitMaskImage: "radial-gradient(circle at center, black 40%, transparent 75%)",
+                  }}
+                />
               </div>
             </div>
           </div>
@@ -315,17 +279,17 @@ export default function LandingPage() {
               <div className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary mb-5 group-hover:scale-110 transition-transform">
                 <FileCheck2 className="size-5" />
               </div>
-              <h3 className="text-base font-bold text-foreground">Precision Rule Scanning</h3>
+              <h3 className="text-base font-bold text-foreground">Document Review Checks</h3>
               <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
-                Automated text heuristics cross-reference client communications against FINRA Rule 2210 and SEC Rule 206(4)-1 disclosure standards.
+                Automated policy screening flags potential compliance issues and disclosure requirements in marketing and client materials.
               </p>
               <div className="mt-5 pt-4 border-t border-border/60 flex items-center justify-between text-[11px]">
-                <span className="font-semibold text-emerald-600 dark:text-emerald-400">FINRA 2210 Heuristics</span>
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">Automated Screening</span>
                 <Link
                   href="/create-workspace"
                   className="font-semibold text-primary hover:underline inline-flex items-center gap-1 cursor-pointer"
                 >
-                  <span>Test in workspace</span>
+                  <span>Get started</span>
                   <ArrowUpRight className="size-3" />
                 </Link>
               </div>
@@ -336,13 +300,13 @@ export default function LandingPage() {
               <div className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary mb-5 group-hover:scale-110 transition-transform">
                 <Lock className="size-5" />
               </div>
-              <h3 className="text-base font-bold text-foreground">Zero-Trust Role Governance</h3>
+              <h3 className="text-base font-bold text-foreground">Role Management</h3>
               <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
-                Compliance Officer roles cannot be claimed publicly. Workspace administrators pre-assign locked roles via single-use 256-bit cryptographic invitation tokens.
+                Team member access is managed securely by administrators. Roles are pre-assigned through direct email invitations.
               </p>
               <div className="mt-5 pt-4 border-t border-border/60 flex items-center justify-between text-[11px]">
-                <span className="font-semibold text-primary">Cryptographic Tokens</span>
-                <span className="font-medium text-muted-foreground">Admin Email Dispatch Only</span>
+                <span className="font-semibold text-primary">Direct Invitations</span>
+                <span className="font-medium text-muted-foreground">Administrator Controlled</span>
               </div>
             </div>
 
@@ -351,12 +315,12 @@ export default function LandingPage() {
               <div className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary mb-5 group-hover:scale-110 transition-transform">
                 <Zap className="size-5" />
               </div>
-              <h3 className="text-base font-bold text-foreground">Live Concurrency Locking</h3>
+              <h3 className="text-base font-bold text-foreground">Review Conflict Prevention</h3>
               <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
-                Atomic database locking ensures two officers never review the same document simultaneously. Real-time SSE updates keep teams synchronized.
+                Active review locking prevents multiple reviewers from making conflicting decisions on the same document simultaneously.
               </p>
               <div className="mt-5 pt-4 border-t border-border/60 flex items-center justify-between text-[11px]">
-                <span className="font-semibold text-amber-600 dark:text-amber-400">Atomic Review Locks</span>
+                <span className="font-semibold text-amber-600 dark:text-amber-400">Live Status Sync</span>
                 <button
                   onClick={() => scrollToSection("support")}
                   className="font-semibold text-primary hover:underline inline-flex items-center gap-1 cursor-pointer"
@@ -401,19 +365,19 @@ export default function LandingPage() {
                 {[
                   {
                     q: "How do organization workspaces isolate firm data?",
-                    a: "Every workspace is tenant-partitioned with its own distinct organization slug and database keys. Financial Advisors and Compliance Officers can only view and process submissions belonging to their authorized organization.",
+                    a: "Every workspace is private to your organization. Advisors and Compliance Officers can only view and process submissions belonging to their assigned workspace.",
                   },
                   {
-                    q: "Can Compliance Officers self-register without an administrator invitation?",
-                    a: "No. To prevent unverified self-appointment vulnerabilities, Compliance Officers cannot self-register. Only authorized workspace administrators can issue cryptographic single-use invitation tokens with pre-locked roles.",
+                    q: "Can team members register without an invitation?",
+                    a: "No. All team members must be invited directly by a workspace administrator with an assigned role.",
                   },
                   {
-                    q: "How does the real-time concurrency locking prevent review conflicts?",
-                    a: "When a compliance officer begins reviewing a client submission, an atomic database claim lock is applied with a 30-minute idle TTL. All other officers in the workspace receive a live SSE event displaying the document as 'In Review by Alex', preventing duplicate reviews.",
+                    q: "How does review conflict prevention work?",
+                    a: "When an officer starts reviewing a document, it is marked as in-review across the workspace, preventing duplicate reviews and conflicting decisions.",
                   },
                   {
                     q: "What happens when an employee departs the organization?",
-                    a: "Workspace Administrators can unassign departing employees directly from the Admin Console. The employee loses access immediately, while their historical submissions and approved review threads remain permanently preserved for regulatory inspections.",
+                    a: "Workspace Administrators can deactivate departing team members directly from the Admin Console. The member loses access immediately, while document history and approvals are preserved.",
                   },
                 ].map((item, idx) => {
                   const isOpen = openFaq === idx;
@@ -466,7 +430,6 @@ export default function LandingPage() {
                 <div className="rounded-2xl border border-border bg-muted/40 p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-foreground">Official Support Channel</span>
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">Verified Active</span>
                   </div>
                   <div className="flex items-center justify-between gap-2 rounded-xl border border-input bg-background/90 px-3 py-2 text-xs">
                     <span className="font-mono text-muted-foreground truncate">compliance-support@northstar.internal</span>
@@ -511,7 +474,6 @@ export default function LandingPage() {
                   <span className="inline-flex items-center gap-1.5 font-medium">
                     <Activity className="size-3 text-emerald-500" /> All Systems Operational
                   </span>
-                  <span>PostgreSQL &bull; Redis &bull; MinIO</span>
                 </div>
               </div>
             </div>

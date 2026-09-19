@@ -208,35 +208,30 @@ export default function CreateWorkspacePage() {
 
         {/* Central Narrative */}
         <div className="relative z-10 max-w-xl pb-8 xl:pb-16">
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary-foreground/20 bg-primary-foreground/10 px-3.5 py-1 text-xs font-semibold text-primary-foreground">
-            <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
-            SEC Rule 206(4)-1 & FINRA 2210 Heuristics
-          </div>
-
           <h1 className="text-balance text-4xl sm:text-5xl font-extrabold tracking-tight leading-[1.08]">
             Set up your firm&apos;s institutional workspace.
           </h1>
 
           <p className="mt-5 text-sm sm:text-base leading-relaxed text-primary-foreground/80 max-w-lg">
-            Provision an isolated regulatory domain for your firm with automated machine-verified precision, strict role governance, and real-time concurrency locks.
+            Create a dedicated workspace for your team to review documents, manage members, and maintain compliance records.
           </p>
 
           <div className="mt-8 flex flex-col gap-3 text-xs text-primary-foreground/85">
             <div className="flex items-center gap-2.5">
               <Check className="size-4 text-emerald-300 shrink-0" strokeWidth={2.4} />
-              <span>Master administrator governance with immutable audit trail</span>
+              <span>Centralized administrator controls & audit history</span>
             </div>
             <div className="flex items-center gap-2.5">
               <Check className="size-4 text-emerald-300 shrink-0" strokeWidth={2.4} />
-              <span>Zero-trust cryptographic onboarding (no public officer signups)</span>
+              <span>Direct email invitations for team members</span>
             </div>
             <div className="flex items-center gap-2.5">
               <Check className="size-4 text-emerald-300 shrink-0" strokeWidth={2.4} />
-              <span>Live Server-Sent Events (SSE) document collision locks</span>
+              <span>Real-time review status updates</span>
             </div>
             <div className="flex items-center gap-2.5">
               <Check className="size-4 text-emerald-300 shrink-0" strokeWidth={2.4} />
-              <span>Dedicated firm partition with isolated regulatory archives</span>
+              <span>Private workspace dedicated to your organization</span>
             </div>
           </div>
         </div>
@@ -321,7 +316,7 @@ export default function CreateWorkspacePage() {
                     Register Organization Workspace
                   </h2>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Set up an isolated regulatory workspace for your firm and assign your master administrator.
+                    Enter your organization and administrator details to get started.
                   </p>
                 </div>
 
@@ -354,10 +349,6 @@ export default function CreateWorkspacePage() {
                       placeholder="e.g. Apex Wealth Partners"
                       className="w-full rounded-xl border border-input bg-background/80 px-3.5 py-2.5 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
                     />
-                    <p className="mt-1.5 text-[11px] text-muted-foreground flex items-center gap-1.5">
-                      <ShieldCheck className="size-3 text-primary shrink-0" />
-                      <span>Firm identifier slug will be automatically provisioned server-side.</span>
-                    </p>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">

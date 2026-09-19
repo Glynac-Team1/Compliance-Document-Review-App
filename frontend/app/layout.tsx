@@ -4,8 +4,8 @@ import { ToastProvider } from '@/components/Toast'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Northstar Compliance | Institutional Document Review',
-  description: 'Institutional document review platform with machine-verified precision, strict role governance, and real-time concurrency locks.',
+  title: 'Northstar Compliance | Document Review',
+  description: 'Compliance document review platform for financial advisory teams.',
   icons: {
     icon: [
       {
