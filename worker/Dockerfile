@@ -43,7 +43,8 @@ USER appuser
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    HF_HOME=/home/appuser/.cache/huggingface
+    HF_HOME=/home/appuser/.cache/huggingface \
+    RUFF_CACHE_DIR=/tmp/ruff_cache
 
 ENTRYPOINT ["./entrypoint.sh"]
 CMD ["celery", "-A", "worker.celery_app.celery_app", "worker", "--loglevel=info"]
