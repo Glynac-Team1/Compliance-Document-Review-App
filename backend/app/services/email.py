@@ -24,8 +24,8 @@ class BrevoEmailService:
         sender_name: Optional[str] = None,
         frontend_url: Optional[str] = None,
     ):
-        self.api_key = api_key or settings.brevo_api_key
-        self.sender_email = sender_email or settings.brevo_sender_email
+        self.api_key = api_key if api_key is not None else settings.brevo_api_key
+        self.sender_email = sender_email if sender_email is not None else settings.brevo_sender_email
         self.sender_name = sender_name or settings.brevo_sender_name or "Northstar Compliance"
         self.frontend_url = (frontend_url or settings.frontend_url or "http://localhost:3000").rstrip("/")
 
@@ -138,19 +138,18 @@ class BrevoEmailService:
       <p>Institutional Document Compliance Portal</p>
     </div>
     <div class="content">
-      <div class="badge">Role: {role_title}</div>
-      <h2 style="margin-top:0; font-size:18px; color:#0f172a;">You've been invited to join your team</h2>
-      <p style="color:#334155; font-size:14px;">
-        An administrator has dispatched an invitation for <strong>{recipient_email}</strong> to join the <strong>{workspace_name}</strong> workspace as an authorized <strong>{role_title}</strong>.
+      <h2 style="margin-top:0; font-size:18px; color:#0f172a;">You've been invited to join {workspace_name}</h2>
+      <p style="color:#334155; font-size:14px; margin-top:16px;">
+        You have been invited to join the <strong>{workspace_name}</strong> workspace as a <strong>{role_title}</strong>.
       </p>
       <p style="color:#334155; font-size:14px;">
-        Please click the button below to accept your invitation, verify your credentials, and establish your account password:
+        Please click the button below to accept your invitation and set up your password:
       </p>
       <div style="text-align:center;">
         <a href="{invite_url}" class="btn" target="_blank">Accept Invitation &amp; Set Password</a>
       </div>
       <p style="color:#64748b; font-size:12px; margin-top:20px;">
-        <em>Note: This invitation is single-use and will automatically expire in 7 days.</em>
+        <em>This single-use invitation link will expire in 7 days.</em>
       </p>
       <div class="url-fallback">
         <strong>Direct Link:</strong><br>
@@ -158,7 +157,7 @@ class BrevoEmailService:
       </div>
     </div>
     <div class="footer">
-      This is an automated administrative notification dispatched by {workspace_name}.<br>
+      {workspace_name} Document Compliance Portal.<br>
       Please do not reply directly to this email.
     </div>
   </div>
@@ -175,13 +174,12 @@ class BrevoEmailService:
     ) -> str:
         return (
             f"Hello,\n\n"
-            f"You have been invited to join the {workspace_name} compliance workspace "
-            f"as a {role_title} ({recipient_email}).\n\n"
-            f"To accept this invitation and configure your password, please visit:\n"
+            f"You have been invited to join the {workspace_name} workspace as a {role_title}.\n\n"
+            f"To accept your invitation and set up your password, please visit:\n"
             f"{invite_url}\n\n"
-            f"Note: This single-use invitation link expires in 7 days.\n\n"
+            f"This invitation link expires in 7 days.\n\n"
             f"Best regards,\n"
-            f"{workspace_name} Administration"
+            f"{workspace_name}"
         )
 
     async def send_invitation_email(

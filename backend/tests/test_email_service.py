@@ -14,7 +14,7 @@ from app.database import AsyncSessionLocal
 @pytest.mark.asyncio
 async def test_email_service_fallback_mode():
     """Verify graceful fallback when Brevo credentials are not provided."""
-    service = BrevoEmailService(api_key=None, sender_email=None)
+    service = BrevoEmailService(api_key="", sender_email="")
     result = await service.send_invitation_email(
         recipient_email="advisor@example.com",
         role="advisor",
