@@ -176,7 +176,7 @@ export default function LandingPage() {
       setCreateLoading(false);
       return;
     }
-    if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?/~`]/.test(createPassword)) {
+    if (!/[\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e]/.test(createPassword)) {
       setCreateError("Password must contain at least one special symbol (!@#$%^&*...).");
       setCreateLoading(false);
       return;
