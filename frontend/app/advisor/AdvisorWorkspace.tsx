@@ -275,13 +275,14 @@ export default function AdvisorWorkspace({ slug: _slug }: AdvisorWorkspaceProps)
       <header className="border-b border-border bg-card">
         <div className="mx-auto flex h-[72px] max-w-[1440px] items-center justify-between px-5 sm:px-8">
           <div className="flex items-center gap-10">
-            <button onClick={() => setScreen('Submissions')} className="flex items-center gap-3 text-primary">
-              <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <FileCheck2 className="size-5" />
-              </span>
-              <span className="font-sans text-[17px] font-bold tracking-tight">
-                NORTHSTAR <span className="font-normal text-muted-foreground">ADVISORY</span>
-              </span>
+            <button onClick={() => setScreen('Submissions')} className="flex items-center gap-2.5 text-left cursor-pointer">
+              <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/20 shrink-0">
+                <ShieldCheck className="size-5" strokeWidth={2.2} />
+              </div>
+              <div>
+                <p className="text-sm font-bold tracking-tight text-foreground leading-none">Northstar</p>
+                <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground mt-1">Compliance</p>
+              </div>
             </button>
             <nav className="hidden items-center gap-7 text-sm font-medium text-muted-foreground md:flex">
               {nav.map((item) => (

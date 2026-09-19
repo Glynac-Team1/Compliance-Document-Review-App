@@ -233,17 +233,13 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* Right Column: Hero Compliance Visual fading cleanly into background */}
-            <div className="lg:col-span-6 relative flex items-center justify-center">
-              <div className="relative w-full max-w-[480px] aspect-square flex items-center justify-center">
+            {/* Right Column: Hero Compliance 3D Shield directly on page, transparent, shifted slightly to the right */}
+            <div className="lg:col-span-6 relative flex items-center justify-center lg:justify-end">
+              <div className="relative w-full max-w-[460px] aspect-square flex items-center justify-center lg:translate-x-6 xl:translate-x-10">
                 <img
-                  src="/hero-compliance.jpg"
-                  alt="Northstar Document Review"
-                  className="w-full h-full object-contain pointer-events-none select-none transition-transform duration-700 hover:scale-105"
-                  style={{
-                    maskImage: "radial-gradient(circle at center, black 40%, transparent 75%)",
-                    WebkitMaskImage: "radial-gradient(circle at center, black 40%, transparent 75%)",
-                  }}
+                  src="/hero-shield.png"
+                  alt="Northstar Compliance Shield"
+                  className="w-full h-full object-contain pointer-events-none select-none drop-shadow-[0_24px_48px_rgba(37,99,235,0.18)] transition-transform duration-700 hover:scale-105"
                 />
               </div>
             </div>
