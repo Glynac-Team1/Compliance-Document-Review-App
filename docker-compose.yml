@@ -46,9 +46,9 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-compliance}:${POSTGRES_PASSWORD:-compliance}@postgres:5432/${POSTGRES_DB:-compliance_review}
       REDIS_URL: redis://redis:6379/0
-      SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-me}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set}
       ENVIRONMENT: ${ENVIRONMENT:-development}
-      OFFICER_SIGNUP_CODE: ${OFFICER_SIGNUP_CODE:-dev-officer-signup-code}
+      OFFICER_SIGNUP_CODE: ${OFFICER_SIGNUP_CODE:?OFFICER_SIGNUP_CODE must be set}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
       PUBLIC_STORAGE_URL: ${PUBLIC_STORAGE_URL:-http://localhost:9000}
@@ -76,9 +76,9 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-compliance}:${POSTGRES_PASSWORD:-compliance}@postgres:5432/${POSTGRES_DB:-compliance_review}
       REDIS_URL: redis://redis:6379/0
-      SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-me}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set}
       ENVIRONMENT: ${ENVIRONMENT:-development}
-      OFFICER_SIGNUP_CODE: ${OFFICER_SIGNUP_CODE:-dev-officer-signup-code}
+      OFFICER_SIGNUP_CODE: ${OFFICER_SIGNUP_CODE:?OFFICER_SIGNUP_CODE must be set}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
     volumes:
