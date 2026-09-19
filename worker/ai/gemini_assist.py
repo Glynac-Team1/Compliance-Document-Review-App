@@ -11,14 +11,15 @@ import re
 import time
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 try:
     from tenacity import (
         retry,
+        retry_if_exception,
         stop_after_attempt,
         wait_exponential,
-        retry_if_exception,
     )
     HAS_TENACITY = True
 except ImportError:
@@ -27,7 +28,6 @@ except ImportError:
 from .pii_masker import PIIMasker
 from .rules_corpus import get_default_rules
 from .schemas import AIAnalysisResult, ComplianceFlag
-
 
 logger = logging.getLogger(__name__)
 
@@ -104,9 +104,9 @@ class GeminiAssistEngine:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        provider: Optional[str] = None,
-        groq_api_key: Optional[str] = None,
+        api_key: str | None = None,
+        provider: str | None = None,
+        groq_api_key: str | None = None,
     ):
         configured_provider = (provider or os.environ.get("LLM_PROVIDER") or "gemini").strip().lower()
         self.provider = configured_provider if configured_provider in {"gemini", "groq"} else "gemini"
@@ -125,8 +125,8 @@ class GeminiAssistEngine:
         self.masker = PIIMasker()
 
     def get_outbound_payload(
-        self, document_text: str, rules_context: Optional[List[Dict[str, str]]] = None
-    ) -> Tuple[Dict[str, Any], Dict[str, str]]:
+        self, document_text: str, rules_context: list[dict[str, str]] | None = None
+    ) -> tuple[dict[str, Any], dict[str, str]]:
         """
         Prepares the sanitized, PII-masked payload sent to the third-party LLM provider.
         Returns:
@@ -141,11 +141,11 @@ class GeminiAssistEngine:
     def _build_payload(
         self,
         masked_text: str,
-        rules_context: Optional[Sequence[Mapping[str, Any]]] = None,
-        missing_disclosures: Optional[Sequence[Any]] = None,
-        precedents: Optional[Sequence[Any]] = None,
-        provider: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        rules_context: Sequence[Mapping[str, Any]] | None = None,
+        missing_disclosures: Sequence[Any] | None = None,
+        precedents: Sequence[Any] | None = None,
+        provider: str | None = None,
+    ) -> dict[str, Any]:
         """Build a provider-specific request from text already inside the privacy wall."""
         rules = list(rules_context) if rules_context else get_default_rules()
         sections = [
@@ -178,7 +178,7 @@ class GeminiAssistEngine:
             },
         }
 
-    def _call_gemini_api(self, payload: Dict[str, Any]) -> Tuple[str, str]:
+    def _call_gemini_api(self, payload: dict[str, Any]) -> tuple[str, str]:
         """Calls Google AI Studio Gemini API with model fallback, secure headers, and exponential backoff."""
         if not self.gemini_api_key:
             raise ValueError("GEMINI_API_KEY / LLM_API_KEY is missing.")
@@ -215,7 +215,7 @@ class GeminiAssistEngine:
 
         raise last_error or RuntimeError("All Gemini model endpoints failed.")
 
-    def _call_groq_api(self, payload: Dict[str, Any]) -> Tuple[str, str]:
+    def _call_groq_api(self, payload: dict[str, Any]) -> tuple[str, str]:
         """Calls Groq OpenAI-compatible Chat Completions API with exponential backoff."""
         api_key = self.groq_api_key or self.gemini_api_key
         if not api_key:
@@ -284,7 +284,7 @@ class GeminiAssistEngine:
 
     @classmethod
     def _validate_response(
-        cls, raw_response_text: str, provider: str, model: Optional[str]
+        cls, raw_response_text: str, provider: str, model: str | None
     ) -> AIAnalysisResult:
         parsed_data = json.loads(cls._clean_json_string(raw_response_text))
         if not isinstance(parsed_data, dict):
@@ -301,7 +301,7 @@ class GeminiAssistEngine:
             model=model,
         )
 
-    def _fallback_response(self) -> Dict[str, Any]:
+    def _fallback_response(self) -> dict[str, Any]:
         return {
             "summary": "AI Assist unavailable (API Key missing, rate-limited, or service degraded). Officer manual review required.",
             "flags": [],
@@ -310,7 +310,7 @@ class GeminiAssistEngine:
             "model": None,
         }
 
-    def _call_provider(self, provider: str, payload: Dict[str, Any]) -> Tuple[str, str]:
+    def _call_provider(self, provider: str, payload: dict[str, Any]) -> tuple[str, str]:
         if provider == "groq":
             return self._call_groq_api(payload)
         return self._call_gemini_api(payload)
@@ -319,10 +319,10 @@ class GeminiAssistEngine:
         self,
         masked_text: str,
         mapping: Mapping[str, str],
-        rules_context: Optional[Sequence[Mapping[str, Any]]] = None,
-        missing_disclosures: Optional[Sequence[Any]] = None,
-        precedents: Optional[Sequence[Any]] = None,
-    ) -> Dict[str, Any]:
+        rules_context: Sequence[Mapping[str, Any]] | None = None,
+        missing_disclosures: Sequence[Any] | None = None,
+        precedents: Sequence[Any] | None = None,
+    ) -> dict[str, Any]:
         if not isinstance(masked_text, str):
             raise TypeError("masked_text must be a string")
         fallback = self._fallback_response()
@@ -371,8 +371,8 @@ class GeminiAssistEngine:
         return fallback
 
     def analyze_document(
-        self, document_text: str, rules_context: Optional[List[Dict[str, str]]] = None
-    ) -> Dict[str, Any]:
+        self, document_text: str, rules_context: list[dict[str, str]] | None = None
+    ) -> dict[str, Any]:
         """
         Main pipeline entry point:
         1. Masks all PII entities into server-side placeholders.
@@ -389,10 +389,10 @@ class GeminiAssistEngine:
     def build_payload_from_masked(
         self,
         masked_text: str,
-        rules_context: Optional[List[Dict[str, str]]] = None,
-        missing_disclosures: Optional[List[Any]] = None,
-        precedents: Optional[List[Any]] = None,
-    ) -> Dict[str, Any]:
+        rules_context: list[dict[str, str]] | None = None,
+        missing_disclosures: list[Any] | None = None,
+        precedents: list[Any] | None = None,
+    ) -> dict[str, Any]:
         if not isinstance(masked_text, str):
             raise TypeError("masked_text must be a string")
         return self._build_payload(masked_text, rules_context, missing_disclosures, precedents)
@@ -401,10 +401,10 @@ class GeminiAssistEngine:
         self,
         masked_text: str,
         mapping: Mapping[str, str],
-        rules_context: Optional[List[Dict[str, str]]] = None,
-        missing_disclosures: Optional[List[Any]] = None,
-        precedents: Optional[List[Any]] = None,
-    ) -> Dict[str, Any]:
+        rules_context: list[dict[str, str]] | None = None,
+        missing_disclosures: list[Any] | None = None,
+        precedents: list[Any] | None = None,
+    ) -> dict[str, Any]:
         return self._analyze_masked(
             masked_text,
             mapping,

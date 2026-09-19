@@ -4,7 +4,7 @@ Enforces strict typing and JSON validation for summaries and traceable flags.
 """
 
 from enum import Enum
-from typing import List, Optional
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -42,7 +42,7 @@ class AIAnalysisResult(BaseModel):
     summary: str = Field(
         description="2-3 sentence overview of the submission"
     )
-    flags: List[ComplianceFlag] = Field(
+    flags: list[ComplianceFlag] = Field(
         default_factory=list,
         description="List of traceable compliance flags"
     )
@@ -50,11 +50,11 @@ class AIAnalysisResult(BaseModel):
         default=False,
         description="Whether analysis was performed in fallback/degraded mode"
     )
-    provider: Optional[str] = Field(
+    provider: str | None = Field(
         default=None,
         description="LLM provider used (e.g. 'gemini', 'groq', 'degraded_fallback')"
     )
-    model: Optional[str] = Field(
+    model: str | None = Field(
         default=None,
         description="Model identifier used for analysis"
     )

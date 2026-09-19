@@ -11,10 +11,11 @@ import sys
 
 sys.path.insert(0, ".")
 
-from app.database import AsyncSessionLocal
-from app.core.security import hash_password
-from models import User, Role
 from sqlalchemy import select
+
+from app.core.security import hash_password
+from app.database import AsyncSessionLocal
+from models import Role, User
 
 
 async def create_officer(email: str, password: str, name: str):

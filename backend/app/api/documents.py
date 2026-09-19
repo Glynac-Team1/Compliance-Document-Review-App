@@ -1,18 +1,30 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form
-from typing import Optional
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import update, select
-from pydantic import BaseModel
-import magic
 import asyncio
 import uuid
-from datetime import datetime, timezone, timedelta
-from models import AIAnalysis, Flag, AnalysisStatus, AuditEvent, AuditAction, User, Rule, Notification
+from datetime import datetime, timedelta, timezone
+
+import magic
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
+from pydantic import BaseModel
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.events import event_manager
-
-from app.core.security import require_role, require_any_role
-from models import Role, DocumentStatus, Document, Review, Decision
-
+from app.core.security import require_any_role, require_role
+from models import (
+    AIAnalysis,
+    AnalysisStatus,
+    AuditAction,
+    AuditEvent,
+    Decision,
+    Document,
+    DocumentStatus,
+    Flag,
+    Notification,
+    Review,
+    Role,
+    Rule,
+    User,
+)
 
 CLAIM_LOCK_TIMEOUT_MINUTES = 30
 
@@ -26,10 +38,11 @@ def is_lock_expired(doc: Document) -> bool:
     locked_at = doc.locked_at if doc.locked_at.tzinfo else doc.locked_at.replace(tzinfo=timezone.utc)
     return (now - locked_at) > timedelta(minutes=CLAIM_LOCK_TIMEOUT_MINUTES)
 
-from app.config import settings
-from app.database import get_db
-from app.core.storage import upload_file_to_minio
 from celery import Celery
+
+from app.config import settings
+from app.core.storage import upload_file_to_minio
+from app.database import get_db
 
 celery_client = Celery("compliance_review", broker=settings.redis_url)
 
@@ -39,7 +52,7 @@ router = APIRouter()
 @router.post("")
 async def upload_document(
     file: UploadFile,
-    previous_version_id: Optional[uuid.UUID] = Form(None),
+    previous_version_id: uuid.UUID | None = Form(None),
     user_token: dict = Depends(require_role(Role.advisor)),
     db: AsyncSession = Depends(get_db)
 ):

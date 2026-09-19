@@ -9,11 +9,11 @@ dependencies; PDF/XLSX use pdfplumber/openpyxl since hand-rolling either
 binary format isn't worth it.
 """
 import os
-import zipfile
 import xml.etree.ElementTree as ET
+import zipfile
 
-import pdfplumber
 import openpyxl
+import pdfplumber
 
 _DOCX_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 

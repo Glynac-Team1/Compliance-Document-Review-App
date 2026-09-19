@@ -11,9 +11,9 @@ Usage:
     python scripts/inspect_outbound_payload.py [optional_path_to_document]
 """
 
-import sys
-import os
 import json
+import os
+import sys
 from pathlib import Path
 
 # Ensure UTF-8 output encoding on Windows consoles
@@ -25,8 +25,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from worker.ai.gemini_assist import GeminiAssistEngine
-from worker.ai.pii_masker import PIIMasker
-
 
 DEFAULT_SEEDED_DOCUMENT = """NORTHSTAR ADVISORY PARTNERS -- PRIVATE WEALTH MEMORANDUM
 Date: September 5, 2026

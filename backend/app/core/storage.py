@@ -1,7 +1,9 @@
+import uuid
+
 import boto3
 from botocore.client import Config
+
 from app.config import settings
-import uuid
 
 s3_client = boto3.client(
     "s3",

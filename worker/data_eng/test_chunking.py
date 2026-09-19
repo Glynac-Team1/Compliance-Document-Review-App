@@ -1,6 +1,6 @@
 import unittest
 
-from worker.data_eng.chunking import chunk_document, DEFAULT_CHUNK_SIZE
+from worker.data_eng.chunking import DEFAULT_CHUNK_SIZE, chunk_document
 
 
 class TestChunking(unittest.TestCase):

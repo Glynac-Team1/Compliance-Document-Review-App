@@ -1,17 +1,17 @@
 import asyncio
 import json
 import uuid
-from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, desc, func, update
+from sqlalchemy import desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
-from app.core.security import require_any_role, decode_raw_token
-from app.core.sse_tickets import issue_ticket, redeem_ticket
 from app.core.events import event_manager
-from models import Role, Notification, User
+from app.core.security import require_any_role
+from app.core.sse_tickets import issue_ticket, redeem_ticket
+from app.database import get_db
+from models import Notification, Role
 
 router = APIRouter()
 

@@ -1,8 +1,10 @@
 from datetime import datetime, timedelta, timezone
+
+import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import ExpiredSignatureError, JWTError, jwt
-import bcrypt
+
 from app.config import settings
 from models import Role
 
@@ -16,8 +18,8 @@ def verify_password(raw: str, hashed: str) -> bool:
     return bcrypt.checkpw(raw.encode('utf-8'), hashed.encode('utf-8'))
 
 
-import secrets
 import re
+import secrets
 
 COMMON_WEAK_PASSWORDS = {
     "password", "password123", "12345678", "123456789", "admin123",

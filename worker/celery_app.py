@@ -1,19 +1,28 @@
-import os
 import asyncio
-from datetime import datetime
+import os
 import uuid
+from datetime import datetime
+
 from celery import Celery
-from sqlalchemy import select, delete
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 
 from app.config import settings
-from models import Document, AIAnalysis, Flag, AnalysisStatus, Severity, Rule, PIIMapping
 from app.core.storage import s3_client
+from models import (
+    AIAnalysis,
+    AnalysisStatus,
+    Document,
+    Flag,
+    PIIMapping,
+    Rule,
+    Severity,
+)
 from worker.ai.gemini_assist import GeminiAssistEngine
 from worker.ai.pii_masker import PIIMasker
 from worker.data_eng.disclosure_check import find_missing_disclosures
-from worker.data_eng.extractors import TextExtractor, ExtractionError
+from worker.data_eng.extractors import ExtractionError, TextExtractor
 from worker.data_eng.precedent_search import retrieve_precedents
 
 celery_app = Celery("compliance_review", broker=settings.redis_url, backend=settings.redis_url)
@@ -80,7 +89,9 @@ def analyze_document(document_id: str) -> dict:
                     try:
                         from worker.data_eng.chunking import chunk_document
                         from worker.data_eng.embeddings import embed_document_chunks
-                        from worker.data_eng.retrieval import retrieve_rules_for_document
+                        from worker.data_eng.retrieval import (
+                            retrieve_rules_for_document,
+                        )
 
                         chunks = embed_document_chunks(chunk_document(masked_text))
                         chunk_embeddings = [chunk.embedding for chunk in chunks if chunk.embedding is not None]

@@ -16,8 +16,8 @@ one document's analysis run (embed -> query the persisted `rules`
 table -> discard). Unlike the rules corpus, there is no permanent
 document-chunk table.
 """
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 
 # Splits after sentence-ending punctuation, on the whitespace that
 # follows, as long as a capital letter or digit comes next. `\s+` also

@@ -1,5 +1,4 @@
 import re
-from typing import Dict, List, Tuple
 
 
 class PIIMasker:
@@ -44,12 +43,12 @@ class PIIMasker:
         "Customer", "Customers", "Shareholder", "Shareholders"
     }
 
-    def mask(self, text: str) -> Tuple[str, Dict[str, str]]:
-        mapping: Dict[str, str] = {}
-        value_to_placeholder: Dict[Tuple[str, str], str] = {}
-        counters: Dict[str, int] = {}
+    def mask(self, text: str) -> tuple[str, dict[str, str]]:
+        mapping: dict[str, str] = {}
+        value_to_placeholder: dict[tuple[str, str], str] = {}
+        counters: dict[str, int] = {}
 
-        pieces: List[str] = []
+        pieces: list[str] = []
         cursor = 0
 
         for match in self._COMBINED_PATTERN.finditer(text):
@@ -92,7 +91,7 @@ class PIIMasker:
 
         return masked_result, mapping
 
-    def unmask(self, text: str, mapping: Dict[str, str]) -> str:
+    def unmask(self, text: str, mapping: dict[str, str]) -> str:
         for placeholder, original in mapping.items():
             text = text.replace(placeholder, original)
         return text

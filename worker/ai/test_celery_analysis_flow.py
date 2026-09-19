@@ -1,6 +1,7 @@
 import unittest
 import uuid
 
+
 # Test the core mapping logic added to worker/celery_app
 class TestCeleryWorkerMapping(unittest.TestCase):
     def test_severity_mapping(self):

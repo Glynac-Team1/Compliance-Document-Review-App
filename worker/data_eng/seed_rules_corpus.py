@@ -20,7 +20,8 @@ from models import Rule
 from worker.ai.rules_corpus import COMPLIANCE_RULES_CORPUS
 
 # Reuse the centralized embedding module
-from worker.data_eng.embeddings import embed_text, EMBEDDING_MODEL_NAME
+from worker.data_eng.embeddings import EMBEDDING_MODEL_NAME, embed_text
+
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 

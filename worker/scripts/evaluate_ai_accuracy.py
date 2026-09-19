@@ -12,9 +12,9 @@ Usage:
     python scripts/evaluate_ai_accuracy.py
 """
 
-import sys
-import os
 import json
+import os
+import sys
 from pathlib import Path
 
 # Ensure UTF-8 output encoding on Windows consoles
@@ -27,7 +27,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from worker.ai.gemini_assist import GeminiAssistEngine
 from worker.ai.pii_masker import PIIMasker
-from worker.ai.schemas import AIAnalysisResult, ComplianceFlag
 
 
 def evaluate_fixtures():
@@ -156,8 +155,8 @@ def evaluate_fixtures():
     print("ACCURACY SCORECARD SUMMARY:")
     print(f"  * Total Fixtures Evaluated: {scorecard['fixtures_evaluated']}")
     print(f"  * Privacy Wall Outbound Leak Rate: {scorecard['privacy_wall_leak_rate'] * 100:.1f}% (Zero PII Leaks)")
-    print(f"  * Pydantic Schema Validation: ENFORCED")
-    print(f"  * Multi-Provider Failover: CONFIGURED (Gemini <-> Groq)")
+    print("  * Pydantic Schema Validation: ENFORCED")
+    print("  * Multi-Provider Failover: CONFIGURED (Gemini <-> Groq)")
     print("=" * 80)
 
 

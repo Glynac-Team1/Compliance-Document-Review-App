@@ -1,10 +1,13 @@
 from datetime import timedelta
+
 import pytest
-from app.core.security import create_session_token, decode_session_token
-from app.api.auth import generate_user_slug
-from models import Role
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
+
+from app.api.auth import generate_user_slug
+from app.core.security import create_session_token, decode_session_token
+from models import Role
+
 
 def test_slug_generation():
     assert generate_user_slug("Daniel Ojo") == "daniel-ojo"

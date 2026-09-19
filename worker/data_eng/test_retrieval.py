@@ -2,7 +2,10 @@ import unittest
 
 from app.database import AsyncSessionLocal
 from worker.data_eng.embeddings import embed_text, embed_texts
-from worker.data_eng.retrieval import _top_k_rules_for_embedding, retrieve_rules_for_document
+from worker.data_eng.retrieval import (
+    _top_k_rules_for_embedding,
+    retrieve_rules_for_document,
+)
 
 
 class TestRuleRetrieval(unittest.IsolatedAsyncioTestCase):

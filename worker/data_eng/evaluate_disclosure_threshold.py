@@ -4,8 +4,8 @@ This intentionally reports retrieval classification metrics rather than claiming
 statistical model quality. The examples must be labeled as disclosure-present
 or disclosure-absent by a reviewer before a threshold is selected.
 """
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Iterable, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

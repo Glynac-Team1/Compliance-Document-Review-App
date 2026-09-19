@@ -4,10 +4,11 @@ corpus seed script and the document retrieval pipeline reuse the SAME
 loaded model instance within a worker process, instead of each holding
 its own copy in memory (~440MB each if duplicated).
 """
-from functools import lru_cache
 import logging
+from functools import lru_cache
 
 from sentence_transformers import SentenceTransformer
+
 from worker.data_eng.chunking import DocumentChunk
 
 logger = logging.getLogger(__name__)

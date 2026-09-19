@@ -1,8 +1,8 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.main import app
 from app.core.security import create_session_token
+from app.main import app
 from models import Role
 
 

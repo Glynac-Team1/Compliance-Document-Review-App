@@ -4,9 +4,8 @@ Conforms to FINRA / SEC style advertising and communication standards.
 Provides realistic compliance rules for the AI assist engine.
 """
 
-from typing import List, Dict
 
-COMPLIANCE_RULES_CORPUS: List[Dict[str, str]] = [
+COMPLIANCE_RULES_CORPUS: list[dict[str, str]] = [
     # 1. Prohibited Performance & Guarantee Claims
     {
         "id": "RULE_FINRA_2210_NO_GUARANTEES",
@@ -92,6 +91,6 @@ COMPLIANCE_RULES_CORPUS: List[Dict[str, str]] = [
 ]
 
 
-def get_default_rules() -> List[Dict[str, str]]:
+def get_default_rules() -> list[dict[str, str]]:
     """Returns the standard seeded compliance rules corpus."""
     return COMPLIANCE_RULES_CORPUS

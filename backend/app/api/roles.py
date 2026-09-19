@@ -1,13 +1,15 @@
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
 from sqlalchemy.orm import aliased
+
+from app.api.documents import execute_officer_decision, is_lock_expired
 from app.core.security import require_role
 from app.database import get_db
-from models import Role, Document, User, Review, DocumentStatus, Decision
-from pydantic import BaseModel
-import uuid
-from app.api.documents import execute_officer_decision, is_lock_expired
+from models import Decision, Document, DocumentStatus, Review, Role, User
 
 advisor_router = APIRouter()
 officer_router = APIRouter() 
@@ -207,8 +209,8 @@ async def get_document_url(
         if officer and officer.workspace_id and officer.workspace_id != doc.workspace_id:
             raise HTTPException(status_code=403, detail="Access denied. Document belongs to another workspace.")
         
-    from app.core.storage import s3_client
     from app.config import settings
+    from app.core.storage import s3_client
     url = s3_client.generate_presigned_url(
         'get_object',
         Params={'Bucket': settings.minio_bucket_name, 'Key': doc.file_reference},

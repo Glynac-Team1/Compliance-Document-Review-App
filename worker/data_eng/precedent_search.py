@@ -4,8 +4,8 @@ document (as ONE averaged vector across its chunks) against a corpus
 of past reviewed documents, each stored as a single whole-document
 embedding, per the brief's Precedent Index definition.
 """
-from dataclasses import dataclass
 import uuid
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

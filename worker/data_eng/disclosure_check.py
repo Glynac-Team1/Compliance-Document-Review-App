@@ -11,8 +11,8 @@ Keyword matching can't do this: disclosures get paraphrased
 ("subject to market risk" vs "you could lose your principal"), so
 presence has to be judged by meaning, not exact wording.
 """
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

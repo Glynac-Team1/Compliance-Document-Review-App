@@ -6,7 +6,7 @@ import zipfile
 import openpyxl
 from fpdf import FPDF
 
-from worker.data_eng.extractors import TextExtractor, ExtractionError
+from worker.data_eng.extractors import ExtractionError, TextExtractor
 
 _DOCX_DOCUMENT_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">

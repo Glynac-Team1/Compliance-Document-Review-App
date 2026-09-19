@@ -1,7 +1,6 @@
 import asyncio
 import json
 import uuid
-from typing import Dict, Set, Optional
 
 import redis.asyncio as aioredis
 
@@ -26,10 +25,10 @@ class EventManager:
     """
 
     def __init__(self):
-        self.user_connections: Dict[uuid.UUID, Set[asyncio.Queue]] = {}
-        self._redis: Optional[aioredis.Redis] = None
-        self._pubsub_task: Optional[asyncio.Task] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self.user_connections: dict[uuid.UUID, set[asyncio.Queue]] = {}
+        self._redis: aioredis.Redis | None = None
+        self._pubsub_task: asyncio.Task | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     @property
     def redis(self) -> aioredis.Redis:

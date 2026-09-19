@@ -1,15 +1,15 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from app.api.documents import router as documents_router
-from app.api.roles import officer_router, advisor_router
-from app.api.auth import router as auth_router
 import logging
 import uuid
-from app.api.notifications import router as notifications_router
-from app.api.invitations import router as invitations_router
 
-
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
+from app.api.auth import router as auth_router
+from app.api.documents import router as documents_router
+from app.api.invitations import router as invitations_router
+from app.api.notifications import router as notifications_router
+from app.api.roles import advisor_router, officer_router
 from app.core.events import event_manager
 
 app = FastAPI(title="Compliance Document Review API")

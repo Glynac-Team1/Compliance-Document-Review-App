@@ -1,9 +1,21 @@
-import enum, uuid
+import enum
+import uuid
 from datetime import datetime
-from sqlalchemy import Enum, ForeignKey, String, DateTime, Boolean, CheckConstraint, Index, text
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+
 from pgvector.sqlalchemy import Vector
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    String,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
 from app.database import Base
 
 

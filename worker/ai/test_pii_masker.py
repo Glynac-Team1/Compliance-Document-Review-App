@@ -3,7 +3,6 @@ import unittest
 
 from worker.ai.gemini_assist import GeminiAssistEngine
 from worker.ai.pii_masker import PIIMasker
-from worker.ai.rules_corpus import get_default_rules, COMPLIANCE_RULES_CORPUS
 
 
 class TestPIIMasker(unittest.TestCase):
@@ -118,7 +117,7 @@ class TestPIIMasker(unittest.TestCase):
 
     def test_pydantic_schema_normalization(self):
         """Tests that Pydantic models normalize string casing and validate schemas."""
-        from worker.ai.schemas import ComplianceFlag, AIAnalysisResult, Severity
+        from worker.ai.schemas import AIAnalysisResult, ComplianceFlag, Severity
         flag = ComplianceFlag(
             passage="Guaranteed 10%",
             matched_rule_id="RULE_FINRA_2210_NO_GUARANTEES",
