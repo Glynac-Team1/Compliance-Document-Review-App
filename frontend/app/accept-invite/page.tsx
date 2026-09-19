@@ -167,8 +167,8 @@ function AcceptInviteContent() {
         />
         <div className="flex flex-col items-center space-y-4 text-center z-10">
           <div className="size-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-          <h2 className="text-lg font-semibold text-foreground">Verifying Invitation Token...</h2>
-          <p className="text-xs text-muted-foreground">Checking institutional credentials and pre-assigned role</p>
+          <h2 className="text-lg font-semibold text-foreground">Verifying invitation...</h2>
+          <p className="text-xs text-muted-foreground">Please wait a moment</p>
         </div>
       </div>
     );
@@ -199,10 +199,10 @@ function AcceptInviteContent() {
               <span>Invitation Link Required</span>
             </div>
             <h1 className="text-xl font-bold tracking-tight text-foreground">
-              Check Your Work Email for Invitation
+              Check Your Email for an Invitation
             </h1>
             <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
-              Northstar Compliance operates under an enterprise zero-trust protocol. Onboarding invitations are dispatched directly via email by your workspace administrator.
+              To join a workspace, use the invitation link sent to your work email.
             </p>
           </div>
 
@@ -210,13 +210,13 @@ function AcceptInviteContent() {
             <div className="flex items-start gap-2.5">
               <CheckCircle2 className="size-4 text-emerald-500 shrink-0 mt-0.5" />
               <span className="text-muted-foreground">
-                <strong className="text-foreground">Step 1:</strong> Open your corporate inbox and locate the invitation email sent by your administrator.
+                <strong className="text-foreground">Step 1:</strong> Open the invitation email sent to your inbox.
               </span>
             </div>
             <div className="flex items-start gap-2.5">
               <CheckCircle2 className="size-4 text-emerald-500 shrink-0 mt-0.5" />
               <span className="text-muted-foreground">
-                <strong className="text-foreground">Step 2:</strong> Click the secure link inside the email to accept your invitation and protect your account with a master password.
+                <strong className="text-foreground">Step 2:</strong> Click the link in your email to accept the invitation and set up your password.
               </span>
             </div>
           </div>
@@ -336,47 +336,23 @@ function AcceptInviteContent() {
               <p className="text-base font-bold tracking-tight text-foreground">{invitation.workspace_name}</p>
               <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                 <Building2 className="size-3 text-primary" />
-                <span>Enterprise Workspace Onboarding</span>
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-            <CheckCircle2 className="size-3.5" />
-            <span>Verified Token</span>
-          </div>
-        </div>
-
-        {/* Accepted Invitation Callout */}
-        <div className="mb-6 rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4">
-          <div className="flex items-start gap-3">
-            <div className="flex size-9 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm shrink-0 mt-0.5">
-              <CheckCircle2 className="size-5" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-emerald-950 dark:text-emerald-300">
-                Invitation Accepted!
-              </h2>
-              <p className="text-xs text-emerald-900/85 dark:text-emerald-400 mt-1 leading-relaxed">
-                You have accepted the onboarding invitation for <strong>{invitation.workspace_name}</strong>. Please protect your account with a master password to complete your account activation.
+                <span>Workspace Onboarding</span>
               </p>
             </div>
           </div>
         </div>
 
-        {/* Locked Role & Identity Verification Details */}
+        {/* Invited Email & Role Details */}
         <div className="mb-6 rounded-xl border border-border/80 bg-muted/40 p-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
             <div>
               <span className="text-muted-foreground font-medium block">Invited Email</span>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <Lock className="size-3 text-muted-foreground" />
-                <span className="font-semibold text-foreground break-all">{invitation.email}</span>
-              </div>
+              <span className="font-semibold text-foreground break-all mt-0.5 block">{invitation.email}</span>
             </div>
             <div>
-              <span className="text-muted-foreground font-medium block">Pre-Assigned Role</span>
+              <span className="text-muted-foreground font-medium block">Role</span>
               <span
-                className={`inline-flex items-center gap-1.5 font-semibold mt-0.5 px-2.5 py-0.5 rounded-full text-xs ${
+                className={`inline-flex items-center gap-1.5 font-semibold mt-1 px-2.5 py-0.5 rounded-full text-xs ${
                   isOfficer
                     ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
                     : "bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/20"
@@ -387,14 +363,6 @@ function AcceptInviteContent() {
               </span>
             </div>
           </div>
-          <p className="mt-3 text-[11px] text-muted-foreground/80 leading-normal border-t border-border/40 pt-2 flex items-center gap-1.5">
-            <KeyRound className="size-3.5 text-primary shrink-0" />
-            <span>
-              {isOfficer
-                ? "Authorized for review queues, compliance sign-offs, and FINRA/SEC audit log inspection."
-                : "Authorized for client document drafting, AI policy screening, and revision workflows."}
-            </span>
-          </p>
         </div>
 
         {/* Account Protection Form */}
@@ -412,20 +380,20 @@ function AcceptInviteContent() {
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Jordan Davis, CFA"
+              placeholder="Full name"
               className="w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-foreground mb-1">Create Master Password</label>
+            <label className="block text-xs font-semibold text-foreground mb-1">Password</label>
             <div className="relative">
               <input
                 type={showPassword ? "text" : "password"}
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter a compliant master password"
+                placeholder="Password"
                 className="w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-xs text-foreground pr-10 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary font-mono"
               />
               <button
@@ -442,9 +410,9 @@ function AcceptInviteContent() {
           {password.length > 0 && (
             <div className="rounded-xl border border-border/70 bg-muted/20 p-3.5 space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground font-medium">Password Security:</span>
+                <span className="text-muted-foreground font-medium">Password strength:</span>
                 <span
-                  className={`font-bold text-[11px] ${
+                  className={`font-semibold text-[11px] ${
                     score <= 2
                       ? "text-red-500"
                       : score <= 4
@@ -452,7 +420,7 @@ function AcceptInviteContent() {
                       : "text-emerald-600 dark:text-emerald-400"
                   }`}
                 >
-                  {score <= 2 ? "Weak" : score <= 4 ? "Moderate" : "Strong & Compliant"}
+                  {score <= 2 ? "Weak" : score <= 4 ? "Moderate" : "Strong"}
                 </span>
               </div>
 
@@ -490,20 +458,20 @@ function AcceptInviteContent() {
                 </div>
                 <div className={`flex items-center gap-1.5 ${checks.symbol ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-muted-foreground"}`}>
                   {checks.symbol ? <CheckCircle2 className="size-3.5" /> : <XCircle className="size-3.5" />}
-                  Special symbol (!@#$...)
+                  Special character (!@#$...)
                 </div>
               </div>
             </div>
           )}
 
           <div>
-            <label className="block text-xs font-semibold text-foreground mb-1">Confirm Master Password</label>
+            <label className="block text-xs font-semibold text-foreground mb-1">Confirm Password</label>
             <input
               type={showPassword ? "text" : "password"}
               required
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Re-enter your master password"
+              placeholder="Confirm password"
               className="w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary font-mono"
             />
             {confirmPassword.length > 0 && !passwordsMatch && (
@@ -518,12 +486,10 @@ function AcceptInviteContent() {
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-xs font-semibold text-primary-foreground shadow-md shadow-primary/20 transition hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {submitting ? (
-                <span>Protecting Account & Entering Workspace...</span>
+                <span>Activating account...</span>
               ) : (
                 <>
-                  <span>
-                    Protect Account & Enter Workspace as {isOfficer ? "Compliance Officer" : "Financial Advisor"}
-                  </span>
+                  <span>Activate Account</span>
                   <ArrowRight className="size-4" />
                 </>
               )}
