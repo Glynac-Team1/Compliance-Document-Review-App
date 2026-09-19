@@ -211,6 +211,32 @@ export default function AdminConsolePage() {
     verifyAuthAndInit();
   }, []);
 
+  // Real-time synchronization: poll workspace data every 8s and when window gains focus
+  useEffect(() => {
+    if (!isAdmin) return;
+    const token = localStorage.getItem("auth_token");
+    if (!token) return;
+
+    const interval = setInterval(() => {
+      fetchWorkspaceData(token);
+    }, 8000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchWorkspaceData(token);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleVisibilityChange);
+    };
+  }, [isAdmin]);
+
   async function handleAdminLogin(e: FormEvent) {
     e.preventDefault();
     setLoginError("");
