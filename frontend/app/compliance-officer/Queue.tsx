@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ChevronLeft, ChevronRight, CircleCheck, Clock3, FileText, Filter, Search, UserCheck } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
+import AuditLogModal from '@/components/AuditLogModal'
 import type { DocumentItem } from '@/types/document'
 
 export type QueueTab = 'unreviewed' | 'reviewed' | 'all'
@@ -85,6 +86,7 @@ export default function Queue({ onReview, initialTab = 'unreviewed', refreshTrig
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 5
   const [isLoading, setIsLoading] = useState(true)
+  const [auditDoc, setAuditDoc] = useState<DocumentItem | null>(null)
 
   // Reset pagination when active tab, status filter, or search query changes
   useEffect(() => {
@@ -230,10 +232,6 @@ export default function Queue({ onReview, initialTab = 'unreviewed', refreshTrig
             Triage uploaded materials, inspect AI findings, and record defensible compliance decisions.
           </p>
         </div>
-        <button className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-semibold shadow-sm hover:bg-muted">
-          <Filter className="size-4" />
-          Export queue
-        </button>
       </div>
 
       <div className="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -469,58 +467,70 @@ export default function Queue({ onReview, initialTab = 'unreviewed', refreshTrig
                       </div>
                     </td>
                     <td className="px-5 py-4 text-right">
-                      {isReviewed ? (
+                      <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
-                            onReview(doc)
+                            setAuditDoc(doc)
                           }}
-                          className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                          title="View Audit Log"
+                          className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
                         >
-                          View Record
+                          Audit Log
                         </button>
-                      ) : isLockedByOther ? (
-                        <button
-                          disabled
-                          title={`This document is already being reviewed by ${doc.locked_by_officer_name || 'another officer'}`}
-                          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground opacity-60 cursor-not-allowed"
-                        >
-                          <Clock3 className="size-3" />
-                          In Review
-                        </button>
-                      ) : isLockedByMe ? (
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleRelease(doc.id)
-                            }}
-                            title="Release lock and return to pending"
-                            className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition"
-                          >
-                            Release
-                          </button>
+                        {isReviewed ? (
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
                               onReview(doc)
                             }}
-                            className="rounded-md border border-primary bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/20"
+                            className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted hover:text-foreground cursor-pointer"
                           >
-                            Resume Review
+                            View Record
                           </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onReview(doc)
-                          }}
-                          className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/[0.06]"
-                        >
-                          Review
-                        </button>
-                      )}
+                        ) : isLockedByOther ? (
+                          <button
+                            disabled
+                            title={`This document is already being reviewed by ${doc.locked_by_officer_name || 'another officer'}`}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground opacity-60 cursor-not-allowed"
+                          >
+                            <Clock3 className="size-3" />
+                            In Review
+                          </button>
+                        ) : isLockedByMe ? (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleRelease(doc.id)
+                              }}
+                              title="Release lock and return to pending"
+                              className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
+                            >
+                              Release
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onReview(doc)
+                              }}
+                              className="rounded-md border border-primary bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/20 cursor-pointer"
+                            >
+                              Resume Review
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onReview(doc)
+                            }}
+                            className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/[0.06] cursor-pointer"
+                          >
+                            Review
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )
@@ -570,6 +580,15 @@ export default function Queue({ onReview, initialTab = 'unreviewed', refreshTrig
           </div>
         </div>
       </div>
+
+      {auditDoc && (
+        <AuditLogModal
+          isOpen={!!auditDoc}
+          onClose={() => setAuditDoc(null)}
+          documentId={auditDoc.id}
+          documentTitle={auditDoc.name || auditDoc.original_filename || auditDoc.filename}
+        />
+      )}
     </div>
   )
 }

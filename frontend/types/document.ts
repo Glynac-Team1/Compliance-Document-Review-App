@@ -83,3 +83,21 @@ export interface UserProfile {
   role: UserRole
   slug?: string
 }
+
+export interface AuditActor {
+  name: string
+  email: string
+  role?: string | null
+}
+
+export interface AuditLogEvent {
+  id: string
+  action: 'submitted' | 'viewed' | 'claimed' | 'decided' | 'resubmitted' | string
+  timestamp: string
+  actor: AuditActor
+}
+
+export interface DocumentAuditTrail {
+  document_id: string
+  audit_events: AuditLogEvent[]
+}

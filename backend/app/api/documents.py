@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import update, select
+from sqlalchemy.orm import aliased
 from pydantic import BaseModel
 import magic
 import asyncio
@@ -194,6 +195,12 @@ async def claim_document(
         officer = await db.scalar(select(User).where(User.id == officer_id))
         if officer and officer.workspace_id and officer.workspace_id != doc.workspace_id:
             raise HTTPException(403, "Access denied. Document belongs to another workspace.")
+
+    if doc.status in (DocumentStatus.approved, DocumentStatus.rejected, DocumentStatus.needs_revision):
+        raise HTTPException(
+            409,
+            f"Document is already {doc.status.value} and cannot be claimed for review."
+        )
 
     now = datetime.now(timezone.utc)
 
@@ -457,8 +464,24 @@ async def execute_officer_decision(
         )
 
 
+    if doc.status == DocumentStatus.needs_revision:
+        raise HTTPException(
+            409,
+            "Document is already marked as needs revision. A new revision must be submitted before it can be reviewed again.",
+        )
     if doc.status in (DocumentStatus.approved, DocumentStatus.rejected):
-        raise HTTPException(409, 'Document is already ' + doc.status.value + ' and cannot be decided again')
+        raise HTTPException(
+            409,
+            f"Document is already {doc.status.value} and cannot be decided again.",
+        )
+
+    # Review.document_id is unique=True in models. Review row is strictly immutable.
+    existing_review = await db.scalar(select(Review).where(Review.document_id == doc.id))
+    if existing_review is not None:
+        raise HTTPException(
+            409,
+            "A review determination has already been recorded for this document version.",
+        )
 
     status_map = {
         Decision.approve: DocumentStatus.approved,
@@ -469,21 +492,13 @@ async def execute_officer_decision(
     doc.locked_by_officer_id = None  # Release lock upon review decision
     doc.locked_at = None
 
-    # Review.document_id is unique=True in models
-    existing_review = await db.scalar(select(Review).where(Review.document_id == doc.id))
-    if existing_review:
-        existing_review.officer_id = officer_id
-        existing_review.decision = decision
-        existing_review.comment = comment
-        existing_review.decided_at = datetime.utcnow()
-    else:
-        review = Review(
-            document_id=doc.id,
-            officer_id=officer_id,
-            decision=decision,
-            comment=comment,
-        )
-        db.add(review)
+    review = Review(
+        document_id=doc.id,
+        officer_id=officer_id,
+        decision=decision,
+        comment=comment,
+    )
+    db.add(review)
 
     db.add(AuditEvent(
         actor_id=officer_id,
@@ -578,32 +593,21 @@ async def get_document_thread(
 
     root_id = target_doc.thread_root_id or target_doc.id
 
-    # Retrieve all documents belonging to this thread
+    # Retrieve all documents belonging to this thread with their review and AI analysis in a single batch query
+    Reviewer = aliased(User)
     thread_query = (
-        select(Document)
+        select(Document, Review, AIAnalysis, Reviewer.name)
+        .outerjoin(Review, Review.document_id == Document.id)
+        .outerjoin(Reviewer, Review.officer_id == Reviewer.id)
+        .outerjoin(AIAnalysis, AIAnalysis.document_id == Document.id)
         .where((Document.thread_root_id == root_id) | (Document.id == root_id))
         .order_by(Document.created_at.asc())
     )
     thread_result = await db.execute(thread_query)
-    docs = thread_result.scalars().all()
+    rows = thread_result.all()
 
     versions = []
-    for idx, doc in enumerate(docs, start=1):
-        # Fetch review and decision details
-        rev_result = await db.execute(select(Review).where(Review.document_id == doc.id))
-        review = rev_result.scalar_one_or_none()
-
-        # Fetch AI analysis status
-        ai_result = await db.execute(select(AIAnalysis).where(AIAnalysis.document_id == doc.id))
-        ai_analysis = ai_result.scalar_one_or_none()
-
-        officer_name = None
-        if review:
-            officer_result = await db.execute(select(User).where(User.id == review.officer_id))
-            officer = officer_result.scalar_one_or_none()
-            if officer:
-                officer_name = officer.name
-
+    for idx, (doc, review, ai_analysis, officer_name) in enumerate(rows, start=1):
         versions.append({
             "version": idx,
             "document_id": str(doc.id),
