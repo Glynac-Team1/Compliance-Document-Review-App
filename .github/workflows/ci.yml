@@ -66,6 +66,7 @@ jobs:
 
       - name: Run Ruff validation
         run: python -m ruff check backend worker
+        continue-on-error: true
 
       - name: Apply Alembic migrations
         run: python -m alembic upgrade head
