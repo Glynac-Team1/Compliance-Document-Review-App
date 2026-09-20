@@ -48,6 +48,7 @@ export REDIS_URL=redis://127.0.0.1:6379/0
 export SESSION_SECRET=local-only-session-secret
 export OFFICER_SIGNUP_CODE=local-only-officer-code
 export ENVIRONMENT=test
+export PYTHONPATH=backend
 python -m ruff check backend worker scripts
 python -m alembic upgrade head
 python -m worker.data_eng.seed_rules_corpus

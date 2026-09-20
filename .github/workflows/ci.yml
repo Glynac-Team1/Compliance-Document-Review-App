@@ -39,6 +39,7 @@ jobs:
       ENVIRONMENT: test
       LLM_API_KEY: ''
       LLM_PROVIDER: gemini
+      PYTHONPATH: backend
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -79,8 +80,6 @@ jobs:
         run: python -m alembic upgrade head
 
       - name: Seed integration-test corpora
-        env:
-          PYTHNPATH: backend
         run: |
           python -m worker.data_eng.seed_rules_corpus
           python -m worker.data_eng.seed_precedents_corpus
