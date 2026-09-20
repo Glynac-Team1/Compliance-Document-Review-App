@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { AlertTriangle, CircleCheck, Info, Sparkles, History, Loader2 } from 'lucide-react'
+import { AlertTriangle, CircleCheck, Info, Sparkles, History, Loader2, ShieldCheck } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
 import { useToast } from '@/components/Toast'
-import type { DocumentItem, DocumentThread, DocumentThreadVersion, AIAnalysis, ComplianceFlag } from '@/types/document'
+import AuditTrailView from '@/components/AuditTrailView'
+import type { DocumentItem, DocumentThread, DocumentThreadVersion, DocumentReview, AIAnalysis, ComplianceFlag } from '@/types/document'
 
 export default function ReviewPanel({
   doc,
@@ -16,7 +17,7 @@ export default function ReviewPanel({
   onStatusChange?: (status: string) => void
 }) {
   const { toast } = useToast()
-  const [tab, setTab] = useState<'AI Assist' | 'Manual Decision' | 'Thread History'>('AI Assist')
+  const [tab, setTab] = useState<'AI Assist' | 'Manual Decision' | 'Thread History' | 'Audit Log'>('AI Assist')
   const [decision, setDecision] = useState('Needs Revision')
   const [comments, setComments] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -30,6 +31,15 @@ export default function ReviewPanel({
   const [analysisData, setAnalysisData] = useState<AIAnalysis | null>(doc?.ai_analysis || null)
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(!doc?.ai_analysis)
   const [analysisStatusMessage, setAnalysisStatusMessage] = useState<string | null>(null)
+
+  const isReviewed = ['approved', 'rejected', 'needs_revision'].includes(doc?.status?.toLowerCase() || '')
+  const currentVersion = threadData?.versions?.find((v) => v.document_id === doc?.id)
+  const existingReview: DocumentReview | null = currentVersion?.review || (doc.officer_comment ? {
+    decision: doc.status as any,
+    comment: doc.officer_comment,
+    decided_at: undefined,
+    officer_name: doc.locked_by_officer_name || 'Compliance Officer',
+  } : null)
 
   useEffect(() => {
     if (!doc?.id) return
@@ -125,7 +135,9 @@ export default function ReviewPanel({
       }
     }
 
-    claimDoc()
+    if (!isReviewed) {
+      claimDoc()
+    }
     fetchAnalysis()
     fetchThread()
 
@@ -133,11 +145,11 @@ export default function ReviewPanel({
       isMounted = false
       if (pollTimer) clearTimeout(pollTimer)
     }
-  }, [doc.id, doc.ai_analysis])
+  }, [doc.id, doc.ai_analysis, isReviewed])
 
   // Periodic heartbeat while reviewing to keep lock active
   useEffect(() => {
-    if (claimStatus !== 'claimed' || !doc?.id) return
+    if (isReviewed || claimStatus !== 'claimed' || !doc?.id) return
 
     // Send heartbeat every 4 minutes (TTL is 30 minutes)
     const interval = setInterval(async () => {
@@ -231,7 +243,7 @@ export default function ReviewPanel({
               : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
         >
-          Manual Decision
+          {isReviewed ? 'Determination' : 'Manual Decision'}
         </button>
         <button
           onClick={() => setTab('Thread History')}
@@ -249,10 +261,21 @@ export default function ReviewPanel({
             </span>
           )}
         </button>
+        <button
+          onClick={() => setTab('Audit Log')}
+          className={`flex h-14 items-center gap-1.5 border-b-2 px-1 text-sm font-semibold transition ${
+            tab === 'Audit Log'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <ShieldCheck className="size-3.5" />
+          <span>Audit Log</span>
+        </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {tab === 'AI Assist' ? (
+        {tab === 'AI Assist' && (
           <div className="flex flex-col gap-7 p-5 sm:p-6">
             {(aiData.error_type === 'unsupported_for_ai' || aiData.manual_review_required || aiData.degraded) && (
               <div data-testid="degraded-state-banner" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
@@ -352,90 +375,147 @@ export default function ReviewPanel({
               )}
             </section>
           </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="flex min-h-full flex-col p-5 sm:p-6">
-            <div>
-              <h2 className="text-sm font-semibold">Final decision</h2>
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                Review the AI findings and record your determination for this submission.
-              </p>
-            </div>
+        )}
 
-            {claimStatus === 'locked_by_other' && (
-              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
-                <div className="flex items-start gap-2.5">
-                  <Info className="size-4 shrink-0 text-amber-600 mt-0.5" />
-                  <div>
-                    <p className="font-semibold text-amber-900">Under Active Review</p>
-                    <p className="mt-1 leading-relaxed text-amber-800">
-                      {lockMessage || 'This document is already being reviewed by another officer.'}
-                    </p>
+        {tab === 'Manual Decision' && (
+          isReviewed ? (
+            <div className="flex min-h-full flex-col p-5 sm:p-6">
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Review Determination</h2>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  This document has already been reviewed. Historical determinations are final and immutable.
+                </p>
+              </div>
+
+              <div className="mt-6 rounded-lg border border-border bg-card p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b border-border pb-3">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</span>
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-xs font-bold uppercase ${
+                      doc.status === 'approved'
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                        : doc.status === 'needs_revision'
+                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                        : doc.status === 'rejected'
+                        ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                        : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                    }`}
+                  >
+                    {doc.status?.replace('_', ' ')}
+                  </span>
+                </div>
+
+                {existingReview ? (
+                  <>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-muted-foreground">Decided by:</span>
+                      <span className="font-medium text-foreground">{existingReview.officer_name || 'Compliance Officer'}</span>
+                    </div>
+                    {existingReview.decided_at && (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-muted-foreground">Decided at:</span>
+                        <span className="text-muted-foreground">{new Date(existingReview.decided_at).toLocaleString()}</span>
+                      </div>
+                    )}
+                    <div className="pt-2 border-t border-border">
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Reviewer Comments</span>
+                      <p className="mt-2 text-sm text-foreground bg-muted/40 rounded-lg p-3 italic">
+                        &ldquo;{existingReview.comment}&rdquo;
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">
+                    Historical record finalized. View the Audit Log or Thread History for complete event details.
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="flex min-h-full flex-col p-5 sm:p-6">
+              <div>
+                <h2 className="text-sm font-semibold">Final decision</h2>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                  Review the AI findings and record your determination for this submission.
+                </p>
+              </div>
+
+              {claimStatus === 'locked_by_other' && (
+                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
+                  <div className="flex items-start gap-2.5">
+                    <Info className="size-4 shrink-0 text-amber-600 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-amber-900">Under Active Review</p>
+                      <p className="mt-1 leading-relaxed text-amber-800">
+                        {lockMessage || 'This document is already being reviewed by another officer.'}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {submitError && (
-              <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 flex items-start gap-2">
-                <AlertTriangle className="size-4 shrink-0 text-rose-600 mt-0.5" />
-                <span>{submitError}</span>
-              </div>
-            )}
+              {submitError && (
+                <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 flex items-start gap-2">
+                  <AlertTriangle className="size-4 shrink-0 text-rose-600 mt-0.5" />
+                  <span>{submitError}</span>
+                </div>
+              )}
 
-            <fieldset disabled={claimStatus === 'locked_by_other'} className="mt-6 flex flex-col gap-3">
-              <legend className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Decision
-              </legend>
+              <fieldset disabled={claimStatus === 'locked_by_other'} className="mt-6 flex flex-col gap-3">
+                <legend className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Decision
+                </legend>
 
-              {['Approve', 'Reject', 'Needs Revision'].map((option) => (
-                <label
-                  key={option}
-                  className={`flex items-center gap-3 rounded-lg border p-4 text-sm transition ${
-                    claimStatus === 'locked_by_other'
-                      ? 'cursor-not-allowed opacity-60 border-border bg-muted/20'
-                      : 'cursor-pointer ' + (decision === option
-                          ? 'border-primary bg-primary/4'
-                          : 'border-border text-muted-foreground hover:bg-muted/50')
-                  }`}
+                {['Approve', 'Reject', 'Needs Revision'].map((option) => (
+                  <label
+                    key={option}
+                    className={`flex items-center gap-3 rounded-lg border p-4 text-sm transition ${
+                      claimStatus === 'locked_by_other'
+                        ? 'cursor-not-allowed opacity-60 border-border bg-muted/20'
+                        : 'cursor-pointer ' + (decision === option
+                            ? 'border-primary bg-primary/4'
+                            : 'border-border text-muted-foreground hover:bg-muted/50')
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="decision"
+                      value={option}
+                      disabled={claimStatus === 'locked_by_other'}
+                      checked={decision === option}
+                      onChange={(e) => setDecision(e.target.value)}
+                      className="size-4 accent-primary"
+                    />
+                    {option}
+                  </label>
+                ))}
+              </fieldset>
+
+              <label className="mt-8 flex flex-col gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Reviewer comments
+                <textarea
+                  required
+                  disabled={claimStatus === 'locked_by_other'}
+                  value={comments}
+                  onChange={(e) => setComments(e.target.value)}
+                  placeholder={claimStatus === 'locked_by_other' ? 'This document is already being reviewed by another officer...' : 'Add context for the submitter...'}
+                  className="min-h-40 resize-y rounded-lg border border-input bg-background p-3 text-sm font-normal normal-case tracking-normal text-foreground outline-none ring-primary placeholder:text-muted-foreground focus:ring-2 disabled:bg-muted/50 disabled:cursor-not-allowed"
+                />
+              </label>
+
+              <div className="mt-auto flex flex-col gap-3 pt-8">
+                <button
+                  type="submit"
+                  disabled={isSubmitting || claimStatus === 'locked_by_other'}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <input
-                    type="radio"
-                    name="decision"
-                    value={option}
-                    disabled={claimStatus === 'locked_by_other'}
-                    checked={decision === option}
-                    onChange={(e) => setDecision(e.target.value)}
-                    className="size-4 accent-primary"
-                  />
-                  {option}
-                </label>
-              ))}
-            </fieldset>
+                  <CircleCheck className="size-4" />
+                  {claimStatus === 'locked_by_other' ? 'Under review by another officer' : isSubmitting ? 'Submitting...' : 'Submit decision'}
+                </button>
+              </div>
 
-            <label className="mt-8 flex flex-col gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Reviewer comments
-              <textarea
-                required
-                disabled={claimStatus === 'locked_by_other'}
-                value={comments}
-                onChange={(e) => setComments(e.target.value)}
-                placeholder={claimStatus === 'locked_by_other' ? 'This document is already being reviewed by another officer...' : 'Add context for the submitter...'}
-                className="min-h-40 resize-y rounded-lg border border-input bg-background p-3 text-sm font-normal normal-case tracking-normal text-foreground outline-none ring-primary placeholder:text-muted-foreground focus:ring-2 disabled:bg-muted/50 disabled:cursor-not-allowed"
-              />
-            </label>
-
-            <div className="mt-auto flex flex-col gap-3 pt-8">
-              <button
-                type="submit"
-                disabled={isSubmitting || claimStatus === 'locked_by_other'}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <CircleCheck className="size-4" />
-                {claimStatus === 'locked_by_other' ? 'Under review by another officer' : isSubmitting ? 'Submitting...' : 'Submit decision'}
-              </button>
-            </div>
-
-          </form>
+            </form>
+          )
         )}
 
         {tab === 'Thread History' && (
@@ -515,6 +595,12 @@ export default function ReviewPanel({
             ) : (
               <p className="text-xs text-muted-foreground">No prior revision history found.</p>
             )}
+          </div>
+        )}
+
+        {tab === 'Audit Log' && (
+          <div className="p-5 sm:p-6">
+            <AuditTrailView documentId={doc.id} />
           </div>
         )}
       </div>

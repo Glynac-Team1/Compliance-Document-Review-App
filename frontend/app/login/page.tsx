@@ -11,10 +11,12 @@ import {
   Building2,
   AlertCircle,
   ArrowLeft,
+  X,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getApiBaseUrl, formatApiError } from "@/lib/api";
+import { useToast } from "@/components/Toast";
 
 function LeftBrandedBrandMark() {
   return (
@@ -61,29 +63,26 @@ interface ActiveSession {
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { toast } = useToast();
 
-  const [workspaceSlug, setWorkspaceSlug] = useState("northstar");
+  const [workspaceSlug, setWorkspaceSlug] = useState<string | null>(null);
   const [workspaceName, setWorkspaceName] = useState("Northstar Compliance");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
-  const [toast, setToast] = useState("");
+  const [errorBanner, setErrorBanner] = useState("");
   const [supportCopied, setSupportCopied] = useState(false);
 
   useEffect(() => {
-    // Detect workspace from URL param or localStorage
+    // 1. URL parameter takes precedence
     const paramSlug = searchParams.get("workspace");
-    const savedSlug = localStorage.getItem("last_workspace_slug");
-    const resolvedSlug = paramSlug || savedSlug || "northstar";
-    setWorkspaceSlug(resolvedSlug);
-
-    const savedName = localStorage.getItem("workspace_name");
-    if (savedName && resolvedSlug === savedSlug) {
-      setWorkspaceName(savedName);
-    } else if (resolvedSlug === "northstar") {
-      setWorkspaceName("Northstar Compliance");
+    if (paramSlug && paramSlug.trim()) {
+      const clean = paramSlug.trim().toLowerCase();
+      setWorkspaceSlug(clean);
+      setWorkspaceName(clean.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
     } else {
-      setWorkspaceName(resolvedSlug.replace(/-/g, " ").toUpperCase());
+      setWorkspaceSlug(null);
+      setWorkspaceName("Northstar Compliance");
     }
 
     async function checkExistingSession() {
@@ -103,13 +102,10 @@ function LoginContent() {
           if (data.is_admin) localStorage.setItem("is_admin", "true");
           if (data.role) localStorage.setItem("user_role", data.role);
           if (data.slug) localStorage.setItem("user_slug", data.slug);
-          if (data.workspace_slug) {
-            localStorage.setItem("last_workspace_slug", data.workspace_slug);
+          // Only sync workspace display if no explicit URL param was given
+          if (!paramSlug && data.workspace_slug) {
             setWorkspaceSlug(data.workspace_slug);
-          }
-          if (data.workspace_name) {
-            localStorage.setItem("workspace_name", data.workspace_name);
-            setWorkspaceName(data.workspace_name);
+            if (data.workspace_name) setWorkspaceName(data.workspace_name);
           }
           setActiveSession(data);
         } else {
@@ -127,16 +123,38 @@ function LoginContent() {
     checkExistingSession();
   }, [searchParams]);
 
+  function handleClearWorkspace() {
+    setWorkspaceSlug(null);
+    setWorkspaceName("Northstar Compliance");
+    localStorage.removeItem("last_workspace_slug");
+    localStorage.removeItem("workspace_name");
+    const url = new URL(window.location.href);
+    url.searchParams.delete("workspace");
+    window.history.replaceState(null, "", url.pathname);
+    toast.info("Workspace Filter Cleared", "Sign in with your corporate email. Your workspace will be resolved automatically.");
+  }
+
+  function handleSignOutSession() {
+    localStorage.removeItem("auth_token");
+    localStorage.removeItem("is_admin");
+    localStorage.removeItem("user_role");
+    localStorage.removeItem("user_slug");
+    localStorage.removeItem("last_workspace_slug");
+    localStorage.removeItem("workspace_name");
+    setActiveSession(null);
+    setErrorBanner("");
+    toast.info("Signed Out", "You have signed out of your previous session.");
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (loading) return;
     setLoading(true);
-    setToast("");
+    setErrorBanner("");
 
     const formData = new FormData(event.currentTarget);
     const email = formData.get("email");
     const password = formData.get("password");
-    const name = formData.get("name") || "New User";
 
     try {
       const response = await fetch(`${getApiBaseUrl()}/auth/login`, {
@@ -145,14 +163,17 @@ function LoginContent() {
         body: JSON.stringify({
           email,
           password,
-          workspace_slug: workspaceSlug,
+          workspace_slug: workspaceSlug || "northstar",
         }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(formatApiError(data.detail, "Authentication failed"));
+        const errText = formatApiError(data.detail, "Invalid email or password");
+        setErrorBanner(errText);
+        toast.error("Sign In Failed", errText);
+        return;
       }
 
       localStorage.setItem("auth_token", data.token);
@@ -161,6 +182,8 @@ function LoginContent() {
       if (data.slug) localStorage.setItem("user_slug", data.slug);
       if (data.workspace_slug) localStorage.setItem("last_workspace_slug", data.workspace_slug);
       if (data.workspace_name) localStorage.setItem("workspace_name", data.workspace_name);
+
+      toast.success("Welcome Back", `Signed in to ${data.workspace_name || "workspace"}`);
 
       if (data.is_admin) {
         router.push("/admin");
@@ -174,7 +197,9 @@ function LoginContent() {
         router.push(`/compliance-officer/${targetSlug}`);
       }
     } catch (error: any) {
-      setToast(error.message || "An error occurred during authentication");
+      const msg = error.message || "An error occurred during authentication";
+      setErrorBanner(msg);
+      toast.error("Sign In Error", msg);
     } finally {
       setLoading(false);
     }
@@ -183,6 +208,7 @@ function LoginContent() {
   function handleCopySupport() {
     navigator.clipboard.writeText("support@northstarcompliance.com");
     setSupportCopied(true);
+    toast.success("Copied", "Support email copied to clipboard.");
     setTimeout(() => setSupportCopied(false), 2500);
   }
 
@@ -271,22 +297,39 @@ function LoginContent() {
           <div className="rounded-2xl border border-border bg-card p-6 shadow-xl shadow-primary/[0.04] sm:p-9">
             {/* Header & Workspace Indicator */}
             <div className="mb-6">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
                   Welcome to Northstar
                 </p>
                 {/* Active Workspace Pill */}
-                <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/60 px-2.5 py-1 text-xs text-foreground">
-                  <Building2 className="size-3 text-primary shrink-0" />
-                  <span className="font-semibold truncate max-w-[130px]">{workspaceName}</span>
-                </div>
+                {workspaceSlug && workspaceSlug !== "northstar" ? (
+                  <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/60 pl-2.5 pr-1.5 py-1 text-xs text-foreground">
+                    <Building2 className="size-3 text-primary shrink-0" />
+                    <span className="font-semibold truncate max-w-[130px]">{workspaceName}</span>
+                    <button
+                      type="button"
+                      onClick={handleClearWorkspace}
+                      title="Clear workspace filter"
+                      className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/60 px-2.5 py-1 text-xs text-foreground">
+                    <Building2 className="size-3 text-primary shrink-0" />
+                    <span className="font-semibold">{workspaceName}</span>
+                  </div>
+                )}
               </div>
 
               <h2 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">
-                Sign in to your workspace
+                {workspaceSlug && workspaceSlug !== "northstar" ? `Sign in to ${workspaceName}` : "Sign in to your workspace"}
               </h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                Enter your credentials for workspace &lsquo;{workspaceSlug}&rsquo;.
+                {workspaceSlug && workspaceSlug !== "northstar"
+                  ? `Enter your corporate credentials for ${workspaceName}.`
+                  : "Enter your corporate email and password. Your organization workspace is detected automatically."}
               </p>
             </div>
 
@@ -300,13 +343,7 @@ function LoginContent() {
                   </span>
                   <button
                     type="button"
-                    onClick={() => {
-                      localStorage.removeItem("auth_token");
-                      localStorage.removeItem("user_role");
-                      localStorage.removeItem("user_slug");
-                      setActiveSession(null);
-                      setToast("Signed out successfully.");
-                    }}
+                    onClick={handleSignOutSession}
                     className="font-semibold text-destructive hover:underline cursor-pointer"
                   >
                     Sign Out
@@ -342,10 +379,17 @@ function LoginContent() {
               </div>
             )}
 
-            {/* Error / Status Toast */}
-            {toast && (
-              <div className="mb-5 rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs font-medium text-destructive">
-                {toast}
+            {/* Error Banner */}
+            {errorBanner && (
+              <div className="mb-5 rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs font-medium text-destructive flex items-center justify-between">
+                <span>{errorBanner}</span>
+                <button
+                  type="button"
+                  onClick={() => setErrorBanner("")}
+                  className="text-destructive font-bold text-xs opacity-70 hover:opacity-100 ml-2 cursor-pointer"
+                >
+                  ✕
+                </button>
               </div>
             )}
 
@@ -371,7 +415,7 @@ function LoginContent() {
                   <button
                     type="button"
                     onClick={() =>
-                      setToast("Please contact your workspace administrator to reset or update your password.")
+                      toast.info("Password Assistance", "Please contact your workspace administrator to reset or update your password.")
                     }
                     className="text-[11px] font-semibold text-primary hover:underline cursor-pointer"
                   >
@@ -400,29 +444,6 @@ function LoginContent() {
                   </button>
                 </div>
               </label>
-
-              {/* Workspace Switcher */}
-              <div className="flex items-center justify-between rounded-xl border border-border/70 bg-muted/40 px-3 py-2 text-xs mt-1">
-                <div className="flex items-center gap-2">
-                  <Building2 className="size-3.5 text-primary shrink-0" />
-                  <span className="text-muted-foreground">Workspace:</span>
-                  <span className="font-semibold text-foreground font-mono">{workspaceSlug}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const newSlug = window.prompt("Enter company workspace slug:", workspaceSlug);
-                    if (newSlug && newSlug.trim()) {
-                      const clean = newSlug.trim().toLowerCase();
-                      setWorkspaceSlug(clean);
-                      setWorkspaceName(clean.replace(/-/g, " ").toUpperCase());
-                    }
-                  }}
-                  className="text-[11px] font-semibold text-primary hover:underline cursor-pointer"
-                >
-                  Switch
-                </button>
-              </div>
 
               <button
                 disabled={loading}
