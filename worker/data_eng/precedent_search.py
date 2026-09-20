@@ -11,7 +11,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Precedent
-from worker.data_eng.embeddings import embed_text
 
 REQUIRED_TOP_K = 3  # fixed by spec, not a tunable parameter
 
@@ -74,6 +73,8 @@ async def add_precedent(
     for later is calling this after an officer records an actual
     decision (source='production', source_document_id set) — that
     wiring is Backend/Celery territory, not built yet."""
+    from worker.data_eng.embeddings import embed_text
+
     embedding = embed_text(masked_text[:2000])  # ~500 tokens, safely under the model's ~512-token limit
     precedent = Precedent(
         precedent_key=precedent_key,
