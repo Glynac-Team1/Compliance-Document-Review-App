@@ -4,25 +4,16 @@ import { ToastProvider } from '@/components/Toast'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Northstar Advisory | Advisor Portal',
-  description: 'Secure document submissions and compliance updates for Northstar Advisory.',
-  generator: 'v0.app',
+  title: 'Northstar Compliance | Document Review',
+  description: 'Compliance document review platform for financial advisory teams.',
   icons: {
     icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
       {
         url: '/icon.svg',
         type: 'image/svg+xml',
       },
     ],
-    apple: '/apple-icon.png',
+    apple: '/icon.svg',
   },
 }
 

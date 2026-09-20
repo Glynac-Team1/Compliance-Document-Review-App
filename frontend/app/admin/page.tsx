@@ -23,6 +23,8 @@ import {
   Building2,
   X,
   AlertTriangle,
+  RotateCcw,
+  Loader2,
 } from "lucide-react";
 import { getApiBaseUrl, formatApiError } from "@/lib/api";
 
@@ -81,6 +83,7 @@ export default function AdminConsolePage() {
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [resendingId, setResendingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"invite" | "team">("invite");
@@ -208,6 +211,32 @@ export default function AdminConsolePage() {
     verifyAuthAndInit();
   }, []);
 
+  // Real-time synchronization: poll workspace data every 8s and when window gains focus
+  useEffect(() => {
+    if (!isAdmin) return;
+    const token = localStorage.getItem("auth_token");
+    if (!token) return;
+
+    const interval = setInterval(() => {
+      fetchWorkspaceData(token);
+    }, 8000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchWorkspaceData(token);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleVisibilityChange);
+    };
+  }, [isAdmin]);
+
   async function handleAdminLogin(e: FormEvent) {
     e.preventDefault();
     setLoginError("");
@@ -291,7 +320,7 @@ export default function AdminConsolePage() {
 
       setFeedback({
         type: "success",
-        message: `Invitation email dispatched to ${email}! The employee will receive a link to accept the invitation and set their password.`,
+        message: `Invitation email dispatched via Brevo to ${email}! The employee will receive a secure onboarding link to activate their account.`,
       });
       setEmail("");
       if (token) await fetchWorkspaceData(token);
@@ -345,7 +374,7 @@ export default function AdminConsolePage() {
       });
       setFeedback({
         type: "success",
-        message: `Invitation email dispatched to ${modalEmail.trim()}! The employee will receive a link to accept the invitation and set their password.`,
+        message: `Invitation email dispatched via Brevo to ${modalEmail.trim()}! The employee will receive a secure onboarding link to activate their account.`,
       });
       setModalEmail("");
       if (token) await fetchWorkspaceData(token);
@@ -353,6 +382,43 @@ export default function AdminConsolePage() {
       setModalError(err.message || "An unexpected error occurred while sending the invitation.");
     } finally {
       setModalLoading(false);
+    }
+  }
+
+  async function handleResendInvite(invitationId: string, inviteEmail: string) {
+    const token = localStorage.getItem("auth_token");
+    if (!token) return;
+
+    setResendingId(invitationId);
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/admin/invitations/${invitationId}/resend`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(formatApiError(data.detail, "Failed to resend invitation email."));
+      }
+
+      setToast({
+        id: `resend-success-${invitationId}`,
+        type: "success",
+        title: "Invitation Email Resent",
+        message: `A fresh invitation email has been dispatched via Brevo to ${inviteEmail}.`,
+      });
+      await fetchWorkspaceData(token);
+    } catch (err: any) {
+      setToast({
+        id: `resend-error-${invitationId}`,
+        type: "error",
+        title: "Resend Failed",
+        message: err.message || "An unexpected error occurred while resending the email.",
+      });
+    } finally {
+      setResendingId(null);
     }
   }
 
@@ -1001,6 +1067,24 @@ export default function AdminConsolePage() {
 
                           {isPending && (
                             <div className="flex items-center gap-2 self-end sm:self-auto">
+                              <button
+                                onClick={() => handleResendInvite(inv.id, inv.email)}
+                                disabled={resendingId === inv.id || actionInProgress === inv.id}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10 transition disabled:opacity-50 cursor-pointer"
+                                title="Resend invitation email via Brevo"
+                              >
+                                {resendingId === inv.id ? (
+                                  <>
+                                    <Loader2 className="size-3.5 animate-spin" />
+                                    <span>Sending...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <RotateCcw className="size-3.5" />
+                                    <span>Resend Email</span>
+                                  </>
+                                )}
+                              </button>
                               <button
                                 onClick={() => copyInviteLink(inv.token)}
                                 className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"

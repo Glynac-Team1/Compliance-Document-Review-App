@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     brevo_sender_email: str = 'no-reply@example.com'
     llm_api_key: str | None = None
     
+    # Brevo Transactional Email & Frontend URL
+    brevo_api_key: str | None = None
+    brevo_sender_email: str | None = None
+    brevo_sender_name: str = "Northstar Compliance"
+    frontend_url: str = "http://localhost:3000"
+    
     # Upload Constraints
     max_upload_mb: int = 10
     allowed_mime_types: set[str] = {

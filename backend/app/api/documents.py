@@ -124,10 +124,12 @@ async def upload_document(
     db.add(AIAnalysis(document_id=new_document.id, status=AnalysisStatus.pending))
 
     # Notify only compliance officers of the same workspace
-    officers_query = select(User).where(User.role == Role.officer)
     if advisor_workspace_id:
-        officers_query = officers_query.where(User.workspace_id == advisor_workspace_id)
-    officers = (await db.execute(officers_query)).scalars().all()
+        officers_query = select(User).where(User.role == Role.officer, User.workspace_id == advisor_workspace_id)
+        officers = (await db.execute(officers_query)).scalars().all()
+    else:
+        officers = []
+
     upload_msg = (
         f"{advisor_name} submitted a new revision for '{new_document.original_filename}'."
         if previous_version_id
@@ -136,6 +138,7 @@ async def upload_document(
     for off in officers:
         db.add(Notification(
             user_id=off.id,
+            workspace_id=advisor_workspace_id,
             document_id=new_document.id,
             message=upload_msg,
         ))
@@ -240,6 +243,7 @@ async def claim_document(
     claim_msg = f"{officer_name} has started reviewing '{doc.original_filename}'."
     db.add(Notification(
         user_id=doc.advisor_id,
+        workspace_id=doc.workspace_id,
         document_id=doc.id,
         message=claim_msg,
     ))
@@ -494,6 +498,7 @@ async def execute_officer_decision(
     decision_msg = f"Your document '{doc.original_filename}' was marked as {status_text} by {officer_name}."
     db.add(Notification(
         user_id=doc.advisor_id,
+        workspace_id=doc.workspace_id,
         document_id=doc.id,
         message=decision_msg,
     ))

@@ -77,11 +77,12 @@ async def list_my_documents(
 
 @advisor_router.get("/notifications")
 async def list_advisor_notifications(
+    workspace_id: uuid.UUID | None = None,
     user_token: dict = Depends(require_role(Role.advisor)),
     db: AsyncSession = Depends(get_db)
 ):
     from app.api.notifications import list_notifications
-    return await list_notifications(user_token=user_token, db=db)
+    return await list_notifications(workspace_id=workspace_id, user_token=user_token, db=db)
 
 
 @advisor_router.post("/notifications/{notification_id}/read")

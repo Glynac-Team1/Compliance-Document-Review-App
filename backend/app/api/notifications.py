@@ -11,33 +11,64 @@ from app.database import get_db
 from app.core.security import require_any_role, decode_raw_token
 from app.core.sse_tickets import issue_ticket, redeem_ticket
 from app.core.events import event_manager
-from models import Role, Notification, User
+from models import Role, Notification, User, Document
 
 router = APIRouter()
 
 
 @router.get("")
 async def list_notifications(
+    workspace_id: uuid.UUID | None = Query(None),
     user_token: dict = Depends(require_any_role(Role.advisor, Role.officer)),
     db: AsyncSession = Depends(get_db),
 ):
     user_id = uuid.UUID(user_token["sub"])
 
-    # Query notifications ordered by recency
-    result = await db.execute(
+    # Resolve active workspace: parameter -> token -> user record
+    active_ws_id = workspace_id
+    if not active_ws_id and user_token.get("workspace_id"):
+        try:
+            active_ws_id = uuid.UUID(user_token["workspace_id"])
+        except (ValueError, TypeError):
+            pass
+
+    if not active_ws_id:
+        user = await db.scalar(select(User).where(User.id == user_id))
+        if user and user.workspace_id:
+            active_ws_id = user.workspace_id
+
+    # Query notifications strictly scoped to user and active workspace
+    query = (
         select(Notification)
+        .outerjoin(Document, Notification.document_id == Document.id)
         .where(Notification.user_id == user_id)
         .order_by(desc(Notification.created_at))
         .limit(50)
     )
+    if active_ws_id:
+        query = query.where(
+            (Notification.workspace_id == active_ws_id) |
+            (Document.workspace_id == active_ws_id)
+        )
+
+    result = await db.execute(query)
     notifications = result.scalars().all()
 
-    unread_count = await db.scalar(
-        select(func.count(Notification.id)).where(
+    unread_query = (
+        select(func.count(Notification.id))
+        .outerjoin(Document, Notification.document_id == Document.id)
+        .where(
             Notification.user_id == user_id,
             Notification.is_read == False,
         )
-    ) or 0
+    )
+    if active_ws_id:
+        unread_query = unread_query.where(
+            (Notification.workspace_id == active_ws_id) |
+            (Document.workspace_id == active_ws_id)
+        )
+
+    unread_count = await db.scalar(unread_query) or 0
 
     return {
         "notifications": [
@@ -89,15 +120,40 @@ async def mark_notification_read(
 
 @router.post("/read-all")
 async def mark_all_notifications_read(
+    workspace_id: uuid.UUID | None = Query(None),
     user_token: dict = Depends(require_any_role(Role.advisor, Role.officer)),
     db: AsyncSession = Depends(get_db),
 ):
     user_id = uuid.UUID(user_token["sub"])
-    await db.execute(
+
+    active_ws_id = workspace_id
+    if not active_ws_id and user_token.get("workspace_id"):
+        try:
+            active_ws_id = uuid.UUID(user_token["workspace_id"])
+        except (ValueError, TypeError):
+            pass
+
+    if not active_ws_id:
+        user = await db.scalar(select(User).where(User.id == user_id))
+        if user and user.workspace_id:
+            active_ws_id = user.workspace_id
+
+    stmt = (
         update(Notification)
-        .where(Notification.user_id == user_id, Notification.is_read == False)
+        .where(
+            Notification.user_id == user_id,
+            Notification.is_read == False,
+        )
         .values(is_read=True)
     )
+    if active_ws_id:
+        doc_subquery = select(Document.id).where(Document.workspace_id == active_ws_id)
+        stmt = stmt.where(
+            (Notification.workspace_id == active_ws_id) |
+            (Notification.document_id.in_(doc_subquery))
+        )
+
+    await db.execute(stmt)
     await db.commit()
 
     return {"message": "All notifications marked as read", "unread_count": 0}

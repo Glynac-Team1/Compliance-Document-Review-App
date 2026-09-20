@@ -138,3 +138,92 @@ async def test_notification_lifecycle_and_endpoints():
                 await db.execute(delete(User).where(User.id.in_([advisor_id, officer_id])))
                 await db.commit()
 
+
+@pytest.mark.asyncio
+async def test_notification_workspace_isolation():
+    """Verifies that notifications from Workspace A are never leaked to Workspace B."""
+    from models import Workspace
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        ws_a_id = uuid.uuid4()
+        ws_b_id = uuid.uuid4()
+        advisor_id = uuid.uuid4()
+        officer_id = uuid.uuid4()
+        doc_a_id = uuid.uuid4()
+
+        try:
+            async with AsyncSessionLocal() as db:
+                ws_a = Workspace(id=ws_a_id, name="Workspace Alpha", slug=f"ws-alpha-{ws_a_id.hex[:6]}")
+                ws_b = Workspace(id=ws_b_id, name="Workspace Beta", slug=f"ws-beta-{ws_b_id.hex[:6]}")
+                db.add_all([ws_a, ws_b])
+                await db.commit()
+
+                advisor = User(
+                    id=advisor_id,
+                    role=Role.advisor,
+                    name="Multi-Firm Advisor",
+                    email=f"advisor-{advisor_id.hex[:6]}@example.com",
+                    password_hash=hash_password("password123"),
+                    workspace_id=ws_a_id,
+                )
+                officer = User(
+                    id=officer_id,
+                    role=Role.officer,
+                    name="Officer Alpha",
+                    email=f"officer-{officer_id.hex[:6]}@example.com",
+                    password_hash=hash_password("password123"),
+                    workspace_id=ws_a_id,
+                )
+                db.add_all([advisor, officer])
+                await db.commit()
+
+                doc_a = Document(
+                    id=doc_a_id,
+                    advisor_id=advisor_id,
+                    workspace_id=ws_a_id,
+                    original_filename="alpha_confidential.pdf",
+                    file_reference="alpha_confidential.pdf",
+                    file_type="PDF",
+                    status=DocumentStatus.pending,
+                )
+                db.add(doc_a)
+                await db.commit()
+
+                # Add a notification strictly belonging to Workspace A
+                notif_a = Notification(
+                    user_id=advisor_id,
+                    workspace_id=ws_a_id,
+                    document_id=doc_a_id,
+                    message="Officer Alpha has started reviewing 'alpha_confidential.pdf'.",
+                )
+                db.add(notif_a)
+                await db.commit()
+
+            # Session token scoped to Workspace A
+            token_ws_a = create_session_token(str(advisor_id), Role.advisor, workspace_id=str(ws_a_id))
+            # Session token scoped to Workspace B (e.g. newly created workspace)
+            token_ws_b = create_session_token(str(advisor_id), Role.advisor, workspace_id=str(ws_b_id))
+
+            # Query under Workspace B -> MUST BE 0 NOTIFICATIONS (no leakage)
+            res_b = await client.get("/notifications", headers={"Authorization": f"Bearer {token_ws_b}"})
+            assert res_b.status_code == 200
+            data_b = res_b.json()
+            assert data_b["unread_count"] == 0
+            assert len(data_b["notifications"]) == 0
+
+            # Query under Workspace A -> Exactly 1 notification
+            res_a = await client.get("/notifications", headers={"Authorization": f"Bearer {token_ws_a}"})
+            assert res_a.status_code == 200
+            data_a = res_a.json()
+            assert data_a["unread_count"] == 1
+            assert len(data_a["notifications"]) == 1
+            assert "alpha_confidential.pdf" in data_a["notifications"][0]["message"]
+
+        finally:
+            async with AsyncSessionLocal() as db:
+                await db.execute(delete(Notification).where(Notification.user_id == advisor_id))
+                await db.execute(delete(Document).where(Document.id == doc_a_id))
+                await db.execute(delete(User).where(User.id.in_([advisor_id, officer_id])))
+                await db.execute(delete(Workspace).where(Workspace.id.in_([ws_a_id, ws_b_id])))
+                await db.commit()
+

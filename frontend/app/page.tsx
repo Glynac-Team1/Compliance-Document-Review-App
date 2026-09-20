@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, FormEvent } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ShieldCheck,
+  Shield,
   Building2,
   FileCheck2,
   Search,
@@ -12,19 +13,15 @@ import {
   CheckCircle2,
   Lock,
   Zap,
-  Eye,
-  EyeOff,
   HelpCircle,
   Mail,
   ChevronDown,
   Copy,
   Check,
-  Shield,
   Activity,
   ArrowUpRight,
-  UserPlus,
 } from "lucide-react";
-import { getApiBaseUrl, formatApiError } from "@/lib/api";
+import { getApiBaseUrl } from "@/lib/api";
 
 function BrandMark() {
   return (
@@ -40,48 +37,12 @@ function BrandMark() {
   );
 }
 
-function getPasswordStrength(pass: string): { score: number; label: string; color: string } {
-  if (!pass) return { score: 0, label: "", color: "bg-muted" };
-  let score = 0;
-  if (pass.length >= 8) score++;
-  if (/[A-Z]/.test(pass)) score++;
-  if (/[a-z]/.test(pass)) score++;
-  if (/[0-9]/.test(pass)) score++;
-  if (/[^A-Za-z0-9]/.test(pass)) score++;
-
-  if (score <= 2) return { score, label: "Weak", color: "bg-destructive" };
-  if (score <= 4) return { score, label: "Moderate", color: "bg-amber-500" };
-  return { score: 5, label: "Strong", color: "bg-emerald-500" };
-}
-
 export default function LandingPage() {
   const router = useRouter();
 
   // Remembered session state
   const [detectedSlug, setDetectedSlug] = useState<string | null>(null);
   const [detectedWorkspaceName, setDetectedWorkspaceName] = useState<string | null>(null);
-
-  // Active tab in hero workspace hub: 'create' | 'lookup'
-  const [activeTab, setActiveTab] = useState<"create" | "lookup">("create");
-
-  // Create Workspace Form State
-  const [createWsName, setCreateWsName] = useState("");
-  const [createAdminName, setCreateAdminName] = useState("");
-  const [createAdminEmail, setCreateAdminEmail] = useState("");
-  const [createPassword, setCreatePassword] = useState("");
-  const [createLoading, setCreateLoading] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [showCreatePass, setShowCreatePass] = useState(false);
-
-  // Email workspace detection State
-  const [lookupEmail, setLookupEmail] = useState("");
-  const [lookupLoading, setLookupLoading] = useState(false);
-  const [lookupResult, setLookupResult] = useState<{
-    found: boolean;
-    workspaces?: { name: string; slug: string; role: string }[];
-    invitation?: { workspace_name: string; role: string; token: string };
-    message?: string;
-  } | null>(null);
 
   // FAQ Interactive Accordion State
   const [openFaq, setOpenFaq] = useState<number | null>(0);
@@ -126,105 +87,13 @@ export default function LandingPage() {
     setTimeout(() => setCopiedEmail(false), 2500);
   }
 
-  async function handleLookupWorkspace(e: FormEvent) {
-    e.preventDefault();
-    if (!lookupEmail.trim() || lookupLoading) return;
-    setLookupLoading(true);
-    setLookupResult(null);
-
-    try {
-      const res = await fetch(`${getApiBaseUrl()}/auth/lookup-workspaces`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: lookupEmail.trim() }),
-      });
-      const data = await res.json();
-      setLookupResult(data);
-    } catch {
-      setLookupResult({
-        found: false,
-        message: "Unable to connect to discovery service. Please verify your connection.",
-      });
-    } finally {
-      setLookupLoading(false);
-    }
-  }
-
-  async function handleCreateWorkspace(e: FormEvent) {
-    e.preventDefault();
-    setCreateLoading(true);
-    setCreateError(null);
-
-    // Client-side password policy validation
-    if (createPassword.length < 8) {
-      setCreateError("Password must be at least 8 characters long.");
-      setCreateLoading(false);
-      return;
-    }
-    if (!/[A-Z]/.test(createPassword)) {
-      setCreateError("Password must contain at least one uppercase letter (A-Z).");
-      setCreateLoading(false);
-      return;
-    }
-    if (!/[a-z]/.test(createPassword)) {
-      setCreateError("Password must contain at least one lowercase letter (a-z).");
-      setCreateLoading(false);
-      return;
-    }
-    if (!/\d/.test(createPassword)) {
-      setCreateError("Password must contain at least one number (0-9).");
-      setCreateLoading(false);
-      return;
-    }
-    if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?/~`]/.test(createPassword)) {
-      setCreateError("Password must contain at least one special symbol (!@#$%^&*...).");
-      setCreateLoading(false);
-      return;
-    }
-
-    try {
-      const res = await fetch(`${getApiBaseUrl()}/auth/workspaces`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workspace_name: createWsName.trim(),
-          workspace_slug: null,
-          admin_name: createAdminName.trim(),
-          admin_email: createAdminEmail.trim().toLowerCase(),
-          admin_password: createPassword,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(formatApiError(data.detail, "Failed to create workspace."));
-      }
-
-      localStorage.setItem("auth_token", data.token);
-      localStorage.setItem("user_role", data.role);
-      localStorage.setItem("user_slug", data.slug);
-      localStorage.setItem("last_workspace_slug", data.workspace_slug);
-      localStorage.setItem("workspace_name", data.workspace_name);
-      localStorage.setItem("is_admin", "true");
-      sessionStorage.setItem("admin_authenticated", "true");
-
-      router.push("/admin");
-    } catch (err: any) {
-      setCreateError(err instanceof Error ? err.message : formatApiError(err, "Failed to create workspace."));
-    } finally {
-      setCreateLoading(false);
-    }
-  }
-
-  const passStrength = getPasswordStrength(createPassword);
-
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col selection:bg-primary/20 relative overflow-x-hidden">
+    <div className="min-h-screen bg-background text-foreground flex flex-col selection:bg-primary/20 relative overflow-x-clip">
       {/* Institutional dot grid with soft radial vignette */}
       <div className="pointer-events-none absolute inset-0 bg-grid-pattern [mask-image:radial-gradient(ellipse_75%_65%_at_50%_35%,#000_50%,transparent_100%)] -z-10" />
 
-      {/* Top Navigation */}
-      <header className="sticky top-0 z-40 border-b border-border/80 bg-background/80 backdrop-blur-xl">
+      {/* Top Navigation - Sticky header with glassy blur so content smoothly scrolls under it */}
+      <header className="sticky top-0 z-50 w-full border-b border-border/80 bg-background/85 backdrop-blur-xl shadow-xs transition-colors">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
           <BrandMark />
 
@@ -256,16 +125,13 @@ export default function LandingPage() {
             >
               Sign In
             </Link>
-            <button
-              onClick={() => {
-                setActiveTab("create");
-                scrollToSection("workspace-hub");
-              }}
+            <Link
+              href="/create-workspace"
               className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 transition active:scale-95 cursor-pointer"
             >
               <Building2 className="size-3.5" />
               <span>Create Workspace</span>
-            </button>
+            </Link>
           </div>
         </div>
       </header>
@@ -294,20 +160,15 @@ export default function LandingPage() {
         </div>
 
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-14 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-14 items-center">
             {/* Left Headline Column */}
             <div className="lg:col-span-6 space-y-6 pt-2">
-              <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-semibold text-primary">
-                <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-                SEC Rule 206(4)-1 & FINRA 2210 Heuristics
-              </div>
-
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground leading-[1.08]">
                 Institutional compliance review, complete audit assurance.
               </h1>
 
               <p className="text-sm sm:text-base text-foreground/85 dark:text-foreground/90 font-normal leading-relaxed max-w-xl">
-                Northstar enables financial teams to review client materials with machine-verified precision, strict role governance, and real-time concurrency locks built for regulatory scrutiny.
+                Northstar enables financial teams to review client materials, coordinate team approvals, and maintain a complete audit history.
               </p>
 
               {/* Workspace Auto-Detection Callout */}
@@ -336,326 +197,44 @@ export default function LandingPage() {
               <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-medium text-foreground/90 dark:text-foreground/95">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
-                  <span>Single-use cryptographic invitations</span>
+                  <span>Direct team invitations</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
-                  <span>No unverified officer self-signups</span>
+                  <span>Role-based access control</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
-                  <span>Live SSE document conflict prevention</span>
+                  <span>Simultaneous review conflict prevention</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.2} />
-                  <span>Immutable audit log for inspections</span>
+                  <span>Document history & audit trail</span>
                 </div>
               </div>
 
               {/* Quick Actions */}
               <div className="pt-3 flex flex-wrap items-center gap-3">
-                <button
-                  onClick={() => {
-                    setActiveTab("create");
-                    scrollToSection("workspace-hub");
-                  }}
-                  className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-xs font-semibold text-primary-foreground shadow-md shadow-primary/20 hover:bg-primary/90 transition active:scale-95 cursor-pointer"
+                <Link
+                  href="/create-workspace"
+                  className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-primary/90 transition active:scale-95 cursor-pointer"
                 >
                   <Building2 className="size-4" />
-                  <span>Create Your Workspace</span>
-                </button>
-                <button
-                  onClick={() => scrollToSection("features")}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-border px-4 py-2.5 text-xs font-semibold text-foreground hover:bg-muted transition active:scale-95 cursor-pointer"
+                  <span>Create Workspace</span>
+                  <ArrowRight className="size-4" />
+                </Link>
+                <Link
+                  href={detectedSlug ? `/login?workspace=${detectedSlug}` : "/login"}
+                  className="inline-flex items-center gap-2 rounded-xl border border-border bg-card/60 backdrop-blur-sm px-4 py-3 text-sm font-semibold text-foreground hover:bg-muted transition active:scale-95 cursor-pointer"
                 >
-                  <span>Explore Capabilities</span>
-                  <ChevronDown className="size-3.5" />
-                </button>
+                  <Search className="size-4" />
+                  <span>Find My Workspace</span>
+                </Link>
               </div>
             </div>
 
-            {/* Right Column: First-Time User Interactive Workspace Hub */}
-            <div id="workspace-hub" className="lg:col-span-6 scroll-mt-24">
-              <div className="rounded-3xl border border-border/80 bg-card/85 backdrop-blur-xl p-6 sm:p-7 shadow-xl shadow-primary/[0.04] transition-all">
-                {/* Segmented Tab Switcher */}
-                <div className="grid grid-cols-2 gap-1 rounded-2xl border border-border bg-muted/40 p-1 mb-6">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("create")}
-                    className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-xl transition-all ${
-                      activeTab === "create"
-                        ? "bg-card text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    <UserPlus className="size-3.5" />
-                    <span>Create Workspace</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("lookup")}
-                    className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-xl transition-all ${
-                      activeTab === "lookup"
-                        ? "bg-card text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    <Search className="size-3.5" />
-                    <span>Find My Team</span>
-                  </button>
-                </div>
-
-                {activeTab === "create" ? (
-                  /* 1. Create Workspace Onboarding Form */
-                  <div className="space-y-4">
-                    <div>
-                      <h2 className="text-base font-bold tracking-tight text-foreground">
-                        Register Organization Workspace
-                      </h2>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Set up an isolated regulatory domain for your firm and assign your master administrator.
-                      </p>
-                    </div>
-
-                    {createError && (
-                      <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive font-medium flex items-center justify-between">
-                        <span>{createError}</span>
-                        <button
-                          type="button"
-                          onClick={() => setCreateError(null)}
-                          className="font-bold opacity-70 hover:opacity-100 ml-2"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    )}
-
-                    <form onSubmit={handleCreateWorkspace} className="space-y-3 text-xs">
-                      <div>
-                        <label className="block font-semibold text-foreground mb-1">
-                          Firm / Organization Name
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={createWsName}
-                          onChange={(e) => setCreateWsName(e.target.value)}
-                          placeholder="e.g. Apex Wealth Partners"
-                          className="w-full rounded-xl border border-input bg-background/80 px-3 py-2 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
-                        />
-                        <p className="mt-1 text-[11px] text-muted-foreground flex items-center gap-1.5">
-                          <ShieldCheck className="size-3 text-primary shrink-0" />
-                          <span>Organization identifier will be generated server-side upon registration.</span>
-                        </p>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <label className="block font-semibold text-foreground mb-1">
-                            Administrator Name
-                          </label>
-                          <input
-                            type="text"
-                            required
-                            value={createAdminName}
-                            onChange={(e) => setCreateAdminName(e.target.value)}
-                            placeholder="Alex Morgan, CCO"
-                            className="w-full rounded-xl border border-input bg-background/80 px-3 py-2 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block font-semibold text-foreground mb-1">
-                            Corporate Work Email
-                          </label>
-                          <input
-                            type="email"
-                            required
-                            value={createAdminEmail}
-                            onChange={(e) => setCreateAdminEmail(e.target.value)}
-                            placeholder="alex@apexwealth.com"
-                            className="w-full rounded-xl border border-input bg-background/80 px-3 py-2 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="block font-semibold text-foreground">
-                            Master Password
-                          </label>
-                          {createPassword && (
-                            <span className={`text-[10px] font-semibold ${
-                              passStrength.label === "Strong"
-                                ? "text-emerald-600 dark:text-emerald-400"
-                                : passStrength.label === "Moderate"
-                                ? "text-amber-600 dark:text-amber-400"
-                                : "text-destructive"
-                            }`}>
-                              {passStrength.label}
-                            </span>
-                          )}
-                        </div>
-                        <div className="relative">
-                          <input
-                            type={showCreatePass ? "text" : "password"}
-                            required
-                            value={createPassword}
-                            onChange={(e) => setCreatePassword(e.target.value)}
-                            placeholder="Min 8 chars, uppercase, lowercase, number, symbol"
-                            className="w-full rounded-xl border border-input bg-background/80 px-3 py-2 pr-9 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowCreatePass(!showCreatePass)}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                          >
-                            {showCreatePass ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                          </button>
-                        </div>
-
-                        {createPassword && (
-                          <div className="mt-2 flex gap-1 h-1">
-                            {[1, 2, 3, 4, 5].map((level) => (
-                              <div
-                                key={level}
-                                className={`flex-1 rounded-full transition-all ${
-                                  level <= passStrength.score ? passStrength.color : "bg-muted"
-                                }`}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="pt-2">
-                        <button
-                          type="submit"
-                          disabled={createLoading}
-                          className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-md shadow-primary/20 hover:bg-primary/90 transition active:scale-[0.99] disabled:opacity-50 cursor-pointer"
-                        >
-                          {createLoading ? "Provisioning Organization..." : "Launch Organization Workspace →"}
-                        </button>
-                      </div>
-
-                      <p className="text-[11px] text-center text-muted-foreground pt-1">
-                        Already have a workspace?{" "}
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab("lookup")}
-                          className="font-semibold text-primary hover:underline"
-                        >
-                          Find your team
-                        </button>{" "}
-                        or{" "}
-                        <Link href="/login" className="font-semibold text-primary hover:underline">
-                          Sign In
-                        </Link>
-                      </p>
-                    </form>
-                  </div>
-                ) : (
-                  /* 2. Find Existing Workspace Tab */
-                  <div className="space-y-4">
-                    <div>
-                      <h2 className="text-base font-bold tracking-tight text-foreground">
-                        Find Your Organization Workspace
-                      </h2>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Enter your work email to discover which workspace you belong to or accept a pending invitation.
-                      </p>
-                    </div>
-
-                    <form onSubmit={handleLookupWorkspace} className="space-y-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-foreground mb-1">
-                          Corporate Work Email
-                        </label>
-                        <div className="relative">
-                          <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                          <input
-                            type="email"
-                            required
-                            value={lookupEmail}
-                            onChange={(e) => setLookupEmail(e.target.value)}
-                            placeholder="colleague@firm.com"
-                            className="w-full rounded-xl border border-input bg-background/80 pl-9 pr-3 py-2 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
-                          />
-                        </div>
-                      </div>
-
-                      <button
-                        type="submit"
-                        disabled={lookupLoading || !lookupEmail.trim()}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-foreground text-background px-4 py-2.5 text-xs font-semibold hover:bg-foreground/90 transition active:scale-[0.99] disabled:opacity-50 cursor-pointer"
-                      >
-                        {lookupLoading ? "Searching Directory..." : "Discover My Workspace"}
-                        <Search className="size-3.5" />
-                      </button>
-                    </form>
-
-                    {lookupResult && (
-                      <div className="rounded-xl border border-border bg-muted/40 p-4 text-xs transition-all">
-                        {lookupResult.found ? (
-                          <div className="space-y-2.5">
-                            <p className="font-semibold text-emerald-600 dark:text-emerald-400">
-                              Workspace discovered:
-                            </p>
-                            {lookupResult.workspaces?.map((ws) => (
-                              <div key={ws.slug} className="flex items-center justify-between pt-1 border-t border-border/60">
-                                <div>
-                                  <span className="font-bold text-foreground block">{ws.name}</span>
-                                  <span className="text-[10px] text-muted-foreground uppercase">{ws.role}</span>
-                                </div>
-                                <Link
-                                  href={`/login?workspace=${ws.slug}`}
-                                  className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition"
-                                >
-                                  <span>Sign in</span>
-                                  <ArrowRight className="size-3" />
-                                </Link>
-                              </div>
-                            ))}
-                            {lookupResult.invitation && (
-                              <div className="flex items-center justify-between border-t border-border/60 pt-2.5">
-                                <div>
-                                  <span className="font-semibold text-foreground block">
-                                    {lookupResult.invitation.workspace_name}
-                                  </span>
-                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-                                    Pending Invite: {lookupResult.invitation.role}
-                                  </span>
-                                </div>
-                                <Link
-                                  href={`/accept-invite?token=${lookupResult.invitation.token}`}
-                                  className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition"
-                                >
-                                  <span>Accept Invite</span>
-                                  <ArrowRight className="size-3" />
-                                </Link>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            <p className="text-muted-foreground">
-                              {lookupResult.message || "No active workspace was found for this email address."}
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => setActiveTab("create")}
-                              className="text-primary hover:underline font-semibold"
-                            >
-                              Create a new organization workspace instead →
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
+            {/* Right Column: Preserves two-column layout with background orbital rings */}
+            <div className="lg:col-span-6 relative hidden lg:flex items-center justify-center min-h-[380px]" aria-hidden="true" />
           </div>
         </div>
       </section>
@@ -688,22 +267,19 @@ export default function LandingPage() {
               <div className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary mb-5 group-hover:scale-110 transition-transform">
                 <FileCheck2 className="size-5" />
               </div>
-              <h3 className="text-base font-bold text-foreground">Precision Rule Scanning</h3>
+              <h3 className="text-base font-bold text-foreground">Document Review Checks</h3>
               <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
-                Automated text heuristics cross-reference client communications against FINRA Rule 2210 and SEC Rule 206(4)-1 disclosure standards.
+                Automated policy screening flags potential compliance issues and disclosure requirements in marketing and client materials.
               </p>
               <div className="mt-5 pt-4 border-t border-border/60 flex items-center justify-between text-[11px]">
-                <span className="font-semibold text-emerald-600 dark:text-emerald-400">FINRA 2210 Heuristics</span>
-                <button
-                  onClick={() => {
-                    setActiveTab("create");
-                    scrollToSection("workspace-hub");
-                  }}
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">Automated Screening</span>
+                <Link
+                  href="/create-workspace"
                   className="font-semibold text-primary hover:underline inline-flex items-center gap-1 cursor-pointer"
                 >
-                  <span>Test in workspace</span>
+                  <span>Get started</span>
                   <ArrowUpRight className="size-3" />
-                </button>
+                </Link>
               </div>
             </div>
 
@@ -712,13 +288,13 @@ export default function LandingPage() {
               <div className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary mb-5 group-hover:scale-110 transition-transform">
                 <Lock className="size-5" />
               </div>
-              <h3 className="text-base font-bold text-foreground">Zero-Trust Role Governance</h3>
+              <h3 className="text-base font-bold text-foreground">Role Management</h3>
               <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
-                Compliance Officer roles cannot be claimed publicly. Workspace administrators pre-assign locked roles via single-use 256-bit cryptographic invitation tokens.
+                Team member access is managed securely by administrators. Roles are pre-assigned through direct email invitations.
               </p>
               <div className="mt-5 pt-4 border-t border-border/60 flex items-center justify-between text-[11px]">
-                <span className="font-semibold text-primary">Cryptographic Tokens</span>
-                <span className="font-medium text-muted-foreground">Admin Email Dispatch Only</span>
+                <span className="font-semibold text-primary">Direct Invitations</span>
+                <span className="font-medium text-muted-foreground">Administrator Controlled</span>
               </div>
             </div>
 
@@ -727,12 +303,12 @@ export default function LandingPage() {
               <div className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary mb-5 group-hover:scale-110 transition-transform">
                 <Zap className="size-5" />
               </div>
-              <h3 className="text-base font-bold text-foreground">Live Concurrency Locking</h3>
+              <h3 className="text-base font-bold text-foreground">Review Conflict Prevention</h3>
               <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
-                Atomic database locking ensures two officers never review the same document simultaneously. Real-time SSE updates keep teams synchronized.
+                Active review locking prevents multiple reviewers from making conflicting decisions on the same document simultaneously.
               </p>
               <div className="mt-5 pt-4 border-t border-border/60 flex items-center justify-between text-[11px]">
-                <span className="font-semibold text-amber-600 dark:text-amber-400">Atomic Review Locks</span>
+                <span className="font-semibold text-amber-600 dark:text-amber-400">Live Status Sync</span>
                 <button
                   onClick={() => scrollToSection("support")}
                   className="font-semibold text-primary hover:underline inline-flex items-center gap-1 cursor-pointer"
@@ -777,19 +353,19 @@ export default function LandingPage() {
                 {[
                   {
                     q: "How do organization workspaces isolate firm data?",
-                    a: "Every workspace is tenant-partitioned with its own distinct organization slug and database keys. Financial Advisors and Compliance Officers can only view and process submissions belonging to their authorized organization.",
+                    a: "Every workspace is private to your organization. Advisors and Compliance Officers can only view and process submissions belonging to their assigned workspace.",
                   },
                   {
-                    q: "Can Compliance Officers self-register without an administrator invitation?",
-                    a: "No. To prevent unverified self-appointment vulnerabilities, Compliance Officers cannot self-register. Only authorized workspace administrators can issue cryptographic single-use invitation tokens with pre-locked roles.",
+                    q: "Can team members register without an invitation?",
+                    a: "No. All team members must be invited directly by a workspace administrator with an assigned role.",
                   },
                   {
-                    q: "How does the real-time concurrency locking prevent review conflicts?",
-                    a: "When a compliance officer begins reviewing a client submission, an atomic database claim lock is applied with a 30-minute idle TTL. All other officers in the workspace receive a live SSE event displaying the document as 'In Review by Alex', preventing duplicate reviews.",
+                    q: "How does review conflict prevention work?",
+                    a: "When an officer starts reviewing a document, it is marked as in-review across the workspace, preventing duplicate reviews and conflicting decisions.",
                   },
                   {
                     q: "What happens when an employee departs the organization?",
-                    a: "Workspace Administrators can unassign departing employees directly from the Admin Console. The employee loses access immediately, while their historical submissions and approved review threads remain permanently preserved for regulatory inspections.",
+                    a: "Workspace Administrators can deactivate departing team members directly from the Admin Console. The member loses access immediately, while document history and approvals are preserved.",
                   },
                 ].map((item, idx) => {
                   const isOpen = openFaq === idx;
@@ -842,7 +418,6 @@ export default function LandingPage() {
                 <div className="rounded-2xl border border-border bg-muted/40 p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-foreground">Official Support Channel</span>
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">Verified Active</span>
                   </div>
                   <div className="flex items-center justify-between gap-2 rounded-xl border border-input bg-background/90 px-3 py-2 text-xs">
                     <span className="font-mono text-muted-foreground truncate">compliance-support@northstar.internal</span>
@@ -868,16 +443,13 @@ export default function LandingPage() {
                 </div>
 
                 <div className="flex flex-col gap-2.5 pt-1">
-                  <button
-                    onClick={() => {
-                      setActiveTab("create");
-                      scrollToSection("workspace-hub");
-                    }}
+                  <Link
+                    href="/create-workspace"
                     className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition active:scale-95 cursor-pointer"
                   >
                     <span>Create Organization Workspace</span>
                     <ArrowRight className="size-3.5" />
-                  </button>
+                  </Link>
                   <Link
                     href="/login"
                     className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-2.5 text-xs font-semibold text-foreground hover:bg-muted transition active:scale-95"
@@ -890,7 +462,6 @@ export default function LandingPage() {
                   <span className="inline-flex items-center gap-1.5 font-medium">
                     <Activity className="size-3 text-emerald-500" /> All Systems Operational
                   </span>
-                  <span>PostgreSQL &bull; Redis &bull; MinIO</span>
                 </div>
               </div>
             </div>
@@ -908,24 +479,18 @@ export default function LandingPage() {
             </span>
           </div>
           <div className="flex items-center gap-5 font-medium">
-            <button
-              onClick={() => {
-                setActiveTab("create");
-                scrollToSection("workspace-hub");
-              }}
+            <Link
+              href="/create-workspace"
               className="hover:text-foreground cursor-pointer transition"
             >
               Create Workspace
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab("lookup");
-                scrollToSection("workspace-hub");
-              }}
+            </Link>
+            <Link
+              href="/create-workspace"
               className="hover:text-foreground cursor-pointer transition"
             >
               Find Team
-            </button>
+            </Link>
             <Link href="/login" className="hover:text-foreground transition">
               Sign In
             </Link>

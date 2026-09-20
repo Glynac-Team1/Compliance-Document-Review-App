@@ -460,7 +460,7 @@ function LoginContent() {
                 </Link>
                 <span>•</span>
                 <Link
-                  href="/"
+                  href="/create-workspace"
                   className="font-semibold text-primary hover:underline"
                 >
                   Register New Firm

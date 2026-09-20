@@ -42,7 +42,7 @@ async def retrieve_rules_for_document(
     max_total_rules: int = 8,
 ) -> list[RetrievedRule]:
     """Accepts PRECOMPUTED chunk embeddings (caller embeds once and
-    reuses across rule retrieval, disclosure checking, and precedent
+    reuses across rule retrieval, disclosure checking, and preacedent
     search — see worker/ai/pipeline.py). Retrieves top-k rules per
     chunk embedding, merges across chunks keeping each rule's
     best (lowest) distance, caps the total for prompt size."""
