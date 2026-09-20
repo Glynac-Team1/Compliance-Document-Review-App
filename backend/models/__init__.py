@@ -236,4 +236,28 @@ class Notification(Base):
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"), nullable=False)
     message: Mapped[str] = mapped_column(String, nullable=False)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False) 
+ 
+class SupportCategory(str, enum.Enum): 
+    general = "general" 
+    document_review = "document_review" 
+    technical_issue = "technical_issue" 
+ 
+ 
+class SupportRequestStatus(str, enum.Enum): 
+    submitted = "submitted" 
+    in_progress = "in_progress" 
+    resolved = "resolved" 
+ 
+ 
+class SupportRequest(Base): 
+    __tablename__ = "support_requests" 
+ 
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4) 
+    advisor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False) 
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("workspaces.id"), nullable=True) 
+    subject: Mapped[str] = mapped_column(String, nullable=False) 
+    message: Mapped[str] = mapped_column(String, nullable=False) 
+    category: Mapped[SupportCategory] = mapped_column(Enum(SupportCategory), default=SupportCategory.general, nullable=False) 
+    status: Mapped[SupportRequestStatus] = mapped_column(Enum(SupportRequestStatus), default=SupportRequestStatus.submitted, nullable=False) 
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False) 

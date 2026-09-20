@@ -5,6 +5,7 @@ from app.api.roles import officer_router, advisor_router
 from app.api.auth import router as auth_router
 import logging
 import uuid
+from app.api.support import router as support_router
 from app.api.notifications import router as notifications_router
 from app.api.invitations import router as invitations_router
 
@@ -51,7 +52,7 @@ app.include_router(advisor_router, prefix="/documents/mine", tags=["advisor"])
 app.include_router(documents_router, prefix="/documents", tags=["documents"])
 app.include_router(officer_router, prefix="/queue", tags=["officer"])
 app.include_router(notifications_router, prefix="/notifications", tags=["notifications"])
-
+app.include_router(support_router, tags=["support"])
 
 
 @app.get("/health")
