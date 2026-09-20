@@ -37,9 +37,9 @@ before merging.
 
 ## Local validation
 
-The Python integration checks need a running PostgreSQL 16 + pgvector database. The
-following commands reproduce the important Python checks after dependencies are
-installed:
+The Python integration checks need running PostgreSQL 16 + pgvector and Redis
+services. The following commands reproduce the important Python checks after
+dependencies are installed:
 
 ```bash
 python -m pip install --requirement backend/requirements.txt --requirement worker/requirements.txt ruff==0.11.2
@@ -48,6 +48,7 @@ export REDIS_URL=redis://127.0.0.1:6379/0
 export SESSION_SECRET=local-only-session-secret
 export OFFICER_SIGNUP_CODE=local-only-officer-code
 export ENVIRONMENT=test
+export PYTHONPATH=backend
 python -m ruff check backend worker scripts
 python -m alembic upgrade head
 python -m worker.data_eng.seed_rules_corpus

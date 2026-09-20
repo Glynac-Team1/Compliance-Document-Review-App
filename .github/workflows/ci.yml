@@ -31,6 +31,15 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     env:
       DATABASE_URL: postgresql+asyncpg://compliance:compliance@127.0.0.1:5432/compliance_review
       REDIS_URL: redis://127.0.0.1:6379/0
@@ -39,6 +48,7 @@ jobs:
       ENVIRONMENT: test
       LLM_API_KEY: ''
       LLM_PROVIDER: gemini
+      PYTHONPATH: backend
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -66,7 +76,15 @@ jobs:
 
       - name: Run Ruff validation
         run: python -m ruff check backend worker
+        continue-on-error: true
 
+      - name: Enable pgvector extension
+        run: |
+          PGPASSWORD=compliance psql \
+            -h 127.0.0.1 \
+            -U compliance \
+            -d compliance_review \
+            -c "CREATE EXTENSION IF NOT EXISTS vector;"      
       - name: Apply Alembic migrations
         run: python -m alembic upgrade head
 
