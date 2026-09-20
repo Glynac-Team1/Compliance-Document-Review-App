@@ -37,9 +37,9 @@ before merging.
 
 ## Local validation
 
-The Python integration checks need a running PostgreSQL 16 + pgvector database. The
-following commands reproduce the important Python checks after dependencies are
-installed:
+The Python integration checks need running PostgreSQL 16 + pgvector and Redis
+services. The following commands reproduce the important Python checks after
+dependencies are installed:
 
 ```bash
 python -m pip install --requirement backend/requirements.txt --requirement worker/requirements.txt ruff==0.11.2
