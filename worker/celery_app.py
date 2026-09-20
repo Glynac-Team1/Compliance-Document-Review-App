@@ -1,7 +1,8 @@
-import os
 import asyncio
-from datetime import datetime
+import logging
+import os
 import uuid
+from datetime import datetime
 from celery import Celery
 from sqlalchemy import select, delete
 from sqlalchemy.orm import sessionmaker
@@ -15,6 +16,118 @@ from worker.ai.pii_masker import PIIMasker
 from worker.data_eng.disclosure_check import find_missing_disclosures
 from worker.data_eng.extractors import TextExtractor, ExtractionError
 from worker.data_eng.precedent_search import retrieve_precedents
+from worker.data_eng.retrieval import retrieve_rules_for_document
+
+logger = logging.getLogger(__name__)
+
+RETRIEVAL_MANUAL_REVIEW_SUMMARY = (
+    "Automated compliance analysis could not be completed because required "
+    "rule, disclosure, or precedent retrieval failed. Please proceed with manual review."
+)
+
+
+class RetrievalError(Exception):
+    """Raised when a RAG retrieval stage fails and normal LLM analysis must not run."""
+
+    def __init__(self, stage: str, reason: str):
+        self.stage = stage
+        self.reason = reason
+        super().__init__(f"{stage} retrieval failed: {reason}")
+
+
+def _safe_retrieval_reason(exc: BaseException) -> str:
+    """Identify the failure without copying document text or client PII into storage/logs."""
+    names = [type(exc).__name__]
+    cause = exc.__cause__ or exc.__context__
+    if cause is not None and type(cause) is not type(exc):
+        names.append(type(cause).__name__)
+    return ":".join(names)
+
+
+async def retrieve_rag_context(db: AsyncSession, chunk_embeddings, masker):
+    """Run rule, disclosure, and precedent retrieval. Fail closed on any stage error."""
+    try:
+        retrieved_rules = await retrieve_rules_for_document(db, chunk_embeddings)
+    except Exception as exc:
+        raise RetrievalError("rules", _safe_retrieval_reason(exc)) from exc
+
+    try:
+        missing = await find_missing_disclosures(db, chunk_embeddings)
+    except Exception as exc:
+        raise RetrievalError("disclosures", _safe_retrieval_reason(exc)) from exc
+
+    try:
+        retrieved_precedents = await retrieve_precedents(db, chunk_embeddings)
+    except Exception as exc:
+        raise RetrievalError("precedents", _safe_retrieval_reason(exc)) from exc
+
+    rules_context = [
+        {"id": rule.rule_key, "category": rule.rule_type, "text": rule.text}
+        for rule in retrieved_rules
+    ]
+    missing_disclosures = [
+        {
+            "id": item.rule_key,
+            "text": item.text,
+            "closest_distance": item.closest_distance,
+        }
+        for item in missing
+    ]
+    precedents = [
+        {
+            "decision": item.decision,
+            # Precedent comments are database text and may contain
+            # client details from a real review; mask before Gemini.
+            "comment": masker.mask(item.comment)[0],
+            "distance": item.distance,
+        }
+        for item in retrieved_precedents
+    ]
+    return rules_context, missing_disclosures, precedents
+
+
+def persist_retrieval_failure(ai_record, doc, retrieval_err: RetrievalError) -> dict:
+    error_message = (
+        f"retrieval_failed:stage={retrieval_err.stage}:reason={retrieval_err.reason}"
+    )
+    payload = {
+        "summary": RETRIEVAL_MANUAL_REVIEW_SUMMARY,
+        "flags": [],
+        "precedents": [],
+        "degraded": True,
+        "error_type": "retrieval_failed",
+        "failed_stage": retrieval_err.stage,
+        "error_detail": retrieval_err.reason,
+        "manual_review_required": True,
+    }
+    if ai_record is not None:
+        ai_record.status = AnalysisStatus.error
+        ai_record.summary = RETRIEVAL_MANUAL_REVIEW_SUMMARY
+        ai_record.error_message = error_message
+        ai_record.model_name = None
+        ai_record.generated_at = datetime.utcnow()
+    doc.ai_analysis = payload
+    return payload
+
+
+async def fail_closed_on_retrieval_error(db, document_id, ai_record, doc, retrieval_err):
+    logger.error(
+        "RAG retrieval failed; skipping LLM analysis document_id=%s stage=%s error_type=%s",
+        document_id,
+        retrieval_err.stage,
+        retrieval_err.reason,
+    )
+    if ai_record is not None:
+        await db.execute(delete(Flag).where(Flag.analysis_id == ai_record.id))
+    persist_retrieval_failure(ai_record, doc, retrieval_err)
+    await db.commit()
+    return {
+        "document_id": document_id,
+        "status": "error",
+        "error_type": "retrieval_failed",
+        "failed_stage": retrieval_err.stage,
+    }
+
 
 celery_app = Celery("compliance_review", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.task_default_queue = "document-analysis"
@@ -74,44 +187,19 @@ def analyze_document(document_id: str) -> dict:
 
                     # 3. Compute one local embedding batch and reuse it for every retrieval job.
                     # The same masked vectors drive rules, missing disclosures, and precedents.
-                    rules_context = []
-                    missing_disclosures = []
-                    precedents = []
+                    from worker.data_eng.chunking import chunk_document
+                    from worker.data_eng.embeddings import embed_document_chunks
+
+                    chunks = embed_document_chunks(chunk_document(masked_text))
+                    chunk_embeddings = [chunk.embedding for chunk in chunks if chunk.embedding is not None]
                     try:
-                        from worker.data_eng.chunking import chunk_document
-                        from worker.data_eng.embeddings import embed_document_chunks
-                        from worker.data_eng.retrieval import retrieve_rules_for_document
-
-                        chunks = embed_document_chunks(chunk_document(masked_text))
-                        chunk_embeddings = [chunk.embedding for chunk in chunks if chunk.embedding is not None]
-                        retrieved_rules = await retrieve_rules_for_document(db, chunk_embeddings)
-                        missing = await find_missing_disclosures(db, chunk_embeddings)
-                        retrieved_precedents = await retrieve_precedents(db, chunk_embeddings)
-
-                        rules_context = [
-                            {"id": rule.rule_key, "category": rule.rule_type, "text": rule.text}
-                            for rule in retrieved_rules
-                        ]
-                        missing_disclosures = [
-                            {
-                                "id": item.rule_key,
-                                "text": item.text,
-                                "closest_distance": item.closest_distance,
-                            }
-                            for item in missing
-                        ]
-                        precedents = [
-                            {
-                                "decision": item.decision,
-                                # Precedent comments are database text and may contain
-                                # client details from a real review; mask before Gemini.
-                                "comment": masker.mask(item.comment)[0],
-                                "distance": item.distance,
-                            }
-                            for item in retrieved_precedents
-                        ]
-                    except Exception as retrieval_err:
-                        print(f"[WARN] Vector retrieval bypassed or unavailable: {retrieval_err}")
+                        rules_context, missing_disclosures, precedents = await retrieve_rag_context(
+                            db, chunk_embeddings, masker
+                        )
+                    except RetrievalError as retrieval_err:
+                        return await fail_closed_on_retrieval_error(
+                            db, document_id, ai_record, doc, retrieval_err
+                        )
 
                     # 4. Outbound LLM Generation
                     # Dispatches only sanitized text and retrieved rules to external AI providers.
