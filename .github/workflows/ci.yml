@@ -68,6 +68,13 @@ jobs:
         run: python -m ruff check backend worker
         continue-on-error: true
 
+      - name: Enable pgvector extension
+        run: |
+          PGPASSWORD=compliance psql \
+            -h 127.0.0.1 \
+            -U compliance \
+            -d compliance_review \
+            -c "CREATE EXTENSION IF NOT EXISTS vector;"      
       - name: Apply Alembic migrations
         run: python -m alembic upgrade head
 
