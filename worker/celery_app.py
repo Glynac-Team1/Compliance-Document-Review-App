@@ -256,3 +256,4 @@ def analyze_document(document_id: str) -> dict:
         finally:
             await engine.dispose()
     return asyncio.run(process())
+import app.core.tasks  # noqa: E402,F401 — registers process_support_request

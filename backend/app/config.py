@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     session_secret: str = "dev-secret-change-me"
     officer_signup_code: str = ""
     llm_provider: str = "gemini"
+    brevo_api_key: str | None = None
+    brevo_sender_email: str = 'no-reply@example.com'
     llm_api_key: str | None = None
     
     # Upload Constraints
