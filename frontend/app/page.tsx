@@ -233,16 +233,8 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* Right Column: Hero Compliance 3D Shield directly on page, transparent, shifted slightly to the right */}
-            <div className="lg:col-span-6 relative flex items-center justify-center lg:justify-end">
-              <div className="relative w-full max-w-[460px] aspect-square flex items-center justify-center lg:translate-x-6 xl:translate-x-10">
-                <img
-                  src="/hero-shield.png"
-                  alt="Northstar Compliance Shield"
-                  className="w-full h-full object-contain pointer-events-none select-none drop-shadow-[0_24px_48px_rgba(37,99,235,0.18)] transition-transform duration-700 hover:scale-105"
-                />
-              </div>
-            </div>
+            {/* Right Column: Preserves two-column layout with background orbital rings */}
+            <div className="lg:col-span-6 relative hidden lg:flex items-center justify-center min-h-[380px]" aria-hidden="true" />
           </div>
         </div>
       </section>
