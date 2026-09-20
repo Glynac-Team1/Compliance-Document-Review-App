@@ -485,12 +485,6 @@ export default function LandingPage() {
             >
               Create Workspace
             </Link>
-            <Link
-              href="/create-workspace"
-              className="hover:text-foreground cursor-pointer transition"
-            >
-              Find Team
-            </Link>
             <Link href="/login" className="hover:text-foreground transition">
               Sign In
             </Link>

@@ -9,10 +9,7 @@ import {
   ArrowRight,
   Eye,
   EyeOff,
-  Mail,
   ArrowLeft,
-  UserPlus,
-  Search,
   Check,
   Activity,
   AlertCircle,
@@ -68,9 +65,6 @@ function getPasswordStrength(pass: string): { score: number; label: string; colo
 export default function CreateWorkspacePage() {
   const router = useRouter();
 
-  // Active tab: 'create' | 'lookup'
-  const [activeTab, setActiveTab] = useState<"create" | "lookup">("create");
-
   // Create Workspace Form State
   const [createWsName, setCreateWsName] = useState("");
   const [createAdminName, setCreateAdminName] = useState("");
@@ -79,16 +73,6 @@ export default function CreateWorkspacePage() {
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [showCreatePass, setShowCreatePass] = useState(false);
-
-  // Email workspace detection State
-  const [lookupEmail, setLookupEmail] = useState("");
-  const [lookupLoading, setLookupLoading] = useState(false);
-  const [lookupResult, setLookupResult] = useState<{
-    found: boolean;
-    workspaces?: { name: string; slug: string; role: string }[];
-    invitation?: { workspace_name: string; role: string; token: string };
-    message?: string;
-  } | null>(null);
 
   async function handleCreateWorkspace(e: FormEvent) {
     e.preventDefault();
@@ -153,31 +137,6 @@ export default function CreateWorkspacePage() {
       setCreateError(err instanceof Error ? err.message : formatApiError(err, "Failed to create workspace."));
     } finally {
       setCreateLoading(false);
-    }
-  }
-
-  async function handleLookupWorkspace(e: FormEvent) {
-    e.preventDefault();
-    if (!lookupEmail.trim() || lookupLoading) return;
-
-    setLookupLoading(true);
-    setLookupResult(null);
-
-    try {
-      const res = await fetch(`${getApiBaseUrl()}/auth/lookup-workspaces`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: lookupEmail.trim() }),
-      });
-      const data = await res.json();
-      setLookupResult(data);
-    } catch {
-      setLookupResult({
-        found: false,
-        message: "Unable to connect to discovery service. Please verify your connection.",
-      });
-    } finally {
-      setLookupLoading(false);
     }
   }
 
@@ -280,274 +239,144 @@ export default function CreateWorkspacePage() {
 
           {/* Card Container */}
           <div className="rounded-3xl border border-border/80 bg-card/90 backdrop-blur-xl p-6 sm:p-8 shadow-xl shadow-primary/[0.04] transition-all">
-            {/* Segmented Tab Switcher */}
-            <div className="grid grid-cols-2 gap-1 rounded-2xl border border-border bg-muted/40 p-1 mb-6">
-              <button
-                type="button"
-                onClick={() => setActiveTab("create")}
-                className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-xl transition-all ${
-                  activeTab === "create"
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <UserPlus className="size-3.5" />
-                <span>Create Workspace</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("lookup")}
-                className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-xl transition-all ${
-                  activeTab === "lookup"
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Search className="size-3.5" />
-                <span>Find My Team</span>
-              </button>
-            </div>
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-lg font-bold tracking-tight text-foreground">
+                  Register Organization Workspace
+                </h2>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Enter your organization and administrator details to get started.
+                </p>
+              </div>
 
-            {activeTab === "create" ? (
-              /* 1. Create Workspace Onboarding Form */
-              <div className="space-y-4">
+              {createError && (
+                <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive font-medium flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="size-4 shrink-0" />
+                    <span>{createError}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCreateError(null)}
+                    className="font-bold opacity-70 hover:opacity-100 ml-2"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
+              <form onSubmit={handleCreateWorkspace} className="space-y-4 text-xs">
                 <div>
-                  <h2 className="text-lg font-bold tracking-tight text-foreground">
-                    Register Organization Workspace
-                  </h2>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Enter your organization and administrator details to get started.
-                  </p>
+                  <label className="block font-semibold text-foreground mb-1.5">
+                    Firm / Organization Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={createWsName}
+                    onChange={(e) => setCreateWsName(e.target.value)}
+                    placeholder="e.g. Apex Wealth Partners"
+                    className="w-full rounded-xl border border-input bg-background/80 px-3.5 py-2.5 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
+                  />
                 </div>
 
-                {createError && (
-                  <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive font-medium flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="size-4 shrink-0" />
-                      <span>{createError}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setCreateError(null)}
-                      className="font-bold opacity-70 hover:opacity-100 ml-2"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                )}
-
-                <form onSubmit={handleCreateWorkspace} className="space-y-4 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   <div>
                     <label className="block font-semibold text-foreground mb-1.5">
-                      Firm / Organization Name
+                      Administrator Name
                     </label>
                     <input
                       type="text"
                       required
-                      value={createWsName}
-                      onChange={(e) => setCreateWsName(e.target.value)}
-                      placeholder="e.g. Apex Wealth Partners"
+                      value={createAdminName}
+                      onChange={(e) => setCreateAdminName(e.target.value)}
+                      placeholder="Alex Morgan, CCO"
                       className="w-full rounded-xl border border-input bg-background/80 px-3.5 py-2.5 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    <div>
-                      <label className="block font-semibold text-foreground mb-1.5">
-                        Administrator Name
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={createAdminName}
-                        onChange={(e) => setCreateAdminName(e.target.value)}
-                        placeholder="Alex Morgan, CCO"
-                        className="w-full rounded-xl border border-input bg-background/80 px-3.5 py-2.5 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block font-semibold text-foreground mb-1.5">
-                        Corporate Work Email
-                      </label>
-                      <input
-                        type="email"
-                        required
-                        value={createAdminEmail}
-                        onChange={(e) => setCreateAdminEmail(e.target.value)}
-                        placeholder="alex@apexwealth.com"
-                        className="w-full rounded-xl border border-input bg-background/80 px-3.5 py-2.5 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
-                      />
-                    </div>
-                  </div>
-
                   <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="block font-semibold text-foreground">
-                        Master Password
-                      </label>
-                      {createPassword && (
-                        <span className={`text-[10px] font-semibold ${
-                          passStrength.label === "Strong"
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : passStrength.label === "Moderate"
-                            ? "text-amber-600 dark:text-amber-400"
-                            : "text-destructive"
-                        }`}>
-                          {passStrength.label}
-                        </span>
-                      )}
-                    </div>
-                    <div className="relative">
-                      <input
-                        type={showCreatePass ? "text" : "password"}
-                        required
-                        value={createPassword}
-                        onChange={(e) => setCreatePassword(e.target.value)}
-                        placeholder="Min 8 chars, mixed case, number, symbol"
-                        className="w-full rounded-xl border border-input bg-background/80 px-3.5 py-2.5 pr-10 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowCreatePass(!showCreatePass)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      >
-                        {showCreatePass ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                      </button>
-                    </div>
+                    <label className="block font-semibold text-foreground mb-1.5">
+                      Corporate Work Email
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={createAdminEmail}
+                      onChange={(e) => setCreateAdminEmail(e.target.value)}
+                      placeholder="alex@apexwealth.com"
+                      className="w-full rounded-xl border border-input bg-background/80 px-3.5 py-2.5 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
+                    />
+                  </div>
+                </div>
 
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block font-semibold text-foreground">
+                      Master Password
+                    </label>
                     {createPassword && (
-                      <div className="mt-2 flex gap-1 h-1">
-                        {[1, 2, 3, 4, 5].map((level) => (
-                          <div
-                            key={level}
-                            className={`flex-1 rounded-full transition-all ${
-                              level <= passStrength.score ? passStrength.color : "bg-muted"
-                            }`}
-                          />
-                        ))}
-                      </div>
+                      <span className={`text-[10px] font-semibold ${
+                        passStrength.label === "Strong"
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : passStrength.label === "Moderate"
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-destructive"
+                      }`}>
+                        {passStrength.label}
+                      </span>
                     )}
                   </div>
-
-                  <div className="pt-2">
+                  <div className="relative">
+                    <input
+                      type={showCreatePass ? "text" : "password"}
+                      required
+                      value={createPassword}
+                      onChange={(e) => setCreatePassword(e.target.value)}
+                      placeholder="Min 8 chars, mixed case, number, symbol"
+                      className="w-full rounded-xl border border-input bg-background/80 px-3.5 py-2.5 pr-10 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
+                    />
                     <button
-                      type="submit"
-                      disabled={createLoading}
-                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-xs font-semibold text-primary-foreground shadow-md shadow-primary/20 hover:bg-primary/90 transition active:scale-[0.99] disabled:opacity-50 cursor-pointer"
+                      type="button"
+                      onClick={() => setShowCreatePass(!showCreatePass)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                     >
-                      {createLoading ? "Provisioning Organization..." : "Launch Organization Workspace →"}
+                      {showCreatePass ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                     </button>
                   </div>
 
-                  <div className="pt-2 border-t border-border/60 text-center text-[11px] text-muted-foreground">
-                    Already have a registered workspace?{" "}
-                    <Link href="/login" className="font-semibold text-primary hover:underline">
-                      Sign In
-                    </Link>
-                  </div>
-                </form>
-              </div>
-            ) : (
-              /* 2. Find Existing Workspace Tab */
-              <div className="space-y-4">
-                <div>
-                  <h2 className="text-lg font-bold tracking-tight text-foreground">
-                    Find Your Organization Workspace
-                  </h2>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Enter your work email to discover which workspace you belong to or accept a pending invitation.
-                  </p>
+                  {createPassword && (
+                    <div className="mt-2 flex gap-1 h-1">
+                      {[1, 2, 3, 4, 5].map((level) => (
+                        <div
+                          key={level}
+                          className={`flex-1 rounded-full transition-all ${
+                            level <= passStrength.score ? passStrength.color : "bg-muted"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
 
-                <form onSubmit={handleLookupWorkspace} className="space-y-3.5">
-                  <div>
-                    <label className="block text-xs font-semibold text-foreground mb-1.5">
-                      Corporate Work Email
-                    </label>
-                    <div className="relative">
-                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                      <input
-                        type="email"
-                        required
-                        value={lookupEmail}
-                        onChange={(e) => setLookupEmail(e.target.value)}
-                        placeholder="colleague@firm.com"
-                        className="w-full rounded-xl border border-input bg-background/80 pl-10 pr-3.5 py-2.5 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition"
-                      />
-                    </div>
-                  </div>
-
+                <div className="pt-2">
                   <button
                     type="submit"
-                    disabled={lookupLoading || !lookupEmail.trim()}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-foreground text-background px-4 py-2.5 text-xs font-semibold hover:bg-foreground/90 transition active:scale-[0.99] disabled:opacity-50 cursor-pointer"
+                    disabled={createLoading}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-xs font-semibold text-primary-foreground shadow-md shadow-primary/20 hover:bg-primary/90 transition active:scale-[0.99] disabled:opacity-50 cursor-pointer"
                   >
-                    {lookupLoading ? "Searching Directory..." : "Discover My Workspace"}
-                    <Search className="size-3.5" />
+                    {createLoading ? "Provisioning Organization..." : "Launch Organization Workspace →"}
                   </button>
-                </form>
+                </div>
 
-                {lookupResult && (
-                  <div className="rounded-xl border border-border bg-muted/40 p-4 text-xs transition-all">
-                    {lookupResult.found ? (
-                      <div className="space-y-2.5">
-                        <p className="font-semibold text-emerald-600 dark:text-emerald-400">
-                          Workspace discovered:
-                        </p>
-                        {lookupResult.workspaces?.map((ws) => (
-                          <div key={ws.slug} className="flex items-center justify-between pt-1 border-t border-border/60">
-                            <div>
-                              <span className="font-bold text-foreground block">{ws.name}</span>
-                              <span className="text-[10px] text-muted-foreground uppercase">{ws.role}</span>
-                            </div>
-                            <Link
-                              href={`/login?workspace=${ws.slug}`}
-                              className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition"
-                            >
-                              <span>Sign in</span>
-                              <ArrowRight className="size-3" />
-                            </Link>
-                          </div>
-                        ))}
-                        {lookupResult.invitation && (
-                          <div className="flex items-center justify-between border-t border-border/60 pt-2.5">
-                            <div>
-                              <span className="font-semibold text-foreground block">
-                                {lookupResult.invitation.workspace_name}
-                              </span>
-                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-                                Pending Invite: {lookupResult.invitation.role}
-                              </span>
-                            </div>
-                            <Link
-                              href={`/accept-invite?token=${lookupResult.invitation.token}`}
-                              className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition"
-                            >
-                              <span>Accept Invite</span>
-                              <ArrowRight className="size-3" />
-                            </Link>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <p className="text-muted-foreground">
-                          {lookupResult.message || "No active workspace was found for this email address."}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab("create")}
-                          className="text-primary hover:underline font-semibold"
-                        >
-                          Create a new organization workspace instead →
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+                <div className="pt-2 border-t border-border/60 text-center text-[11px] text-muted-foreground">
+                  Already have a registered workspace?{" "}
+                  <Link href="/login" className="font-semibold text-primary hover:underline">
+                    Sign In
+                  </Link>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       </section>
