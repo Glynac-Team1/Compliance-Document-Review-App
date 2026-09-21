@@ -21,9 +21,11 @@ from pathlib import Path
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-# Add project root to sys.path
+# Add project root and backend to sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+for p in (PROJECT_ROOT, PROJECT_ROOT / "backend"):
+    if str(p) not in sys.path:
+        sys.path.insert(0, str(p))
 
 from worker.ai.gemini_assist import GeminiAssistEngine
 from worker.ai.pii_masker import PIIMasker
