@@ -146,7 +146,51 @@ function Resources() {
 }
 
 function Support() {
+  const { toast } = useToast()
+  const [subject, setSubject] = useState('')
+  const [message, setMessage] = useState('')
+  const [category, setCategory] = useState('general')
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [sent, setSent] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (isSubmitting) return
+
+    setIsSubmitting(true)
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        toast.error('Authentication Required', 'No active session token found. Please log in again.')
+        return
+      }
+
+      const response = await fetch(`${getApiBaseUrl()}/support/requests`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ subject, message, category }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.detail || 'Failed to submit request.')
+      }
+
+      toast.success('Request Submitted', 'Your support request has been received. We\u2019ll be in touch soon.')
+      setSent(true)
+      setSubject('')
+      setMessage('')
+      setCategory('general')
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Failed to submit request. Please try again.'
+      toast.error('Submission Error', msg)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   return (
     <section className="min-w-0 flex-1 px-5 py-8 sm:px-8 lg:py-10">
@@ -175,19 +219,29 @@ function Support() {
       </div>
 
       <div className="mt-8 grid gap-8 lg:grid-cols-[1.15fr_0.85fr]">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            setSent(true)
-          }}
-          className="rounded-lg border border-border bg-card p-6 shadow-sm"
-        >
+        <form onSubmit={handleSubmit} className="rounded-lg border border-border bg-card p-6 shadow-sm">
           <h2 className="text-lg font-bold text-foreground">Submit a support request</h2>
           <p className="mt-1 text-sm text-muted-foreground">Tell us what you need and we&apos;ll route it to the right team.</p>
+
           <label className="mt-5 block text-sm font-medium">
+            Category
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="general">General</option>
+              <option value="document_review">Document Review</option>
+              <option value="technical_issue">Technical Issue</option>
+            </select>
+          </label>
+
+          <label className="mt-4 block text-sm font-medium">
             Subject
             <input
               required
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
               className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary"
               placeholder="What can we help with?"
             />
@@ -196,12 +250,18 @@ function Support() {
             Message
             <textarea
               required
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
               className="mt-2 min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
               placeholder="Add details about your request"
             />
           </label>
-          <button className="mt-4 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground">
-            Send request
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="mt-4 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          >
+            {isSubmitting ? 'Sending...' : 'Send request'}
           </button>
           {sent && (
             <p className="mt-4 flex items-center gap-2 text-sm font-medium text-emerald-700">
