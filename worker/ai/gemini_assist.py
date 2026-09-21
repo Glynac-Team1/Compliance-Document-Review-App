@@ -11,6 +11,8 @@ import re
 import time
 import urllib.error
 import urllib.request
+import sys
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 try:
@@ -27,7 +29,17 @@ except ImportError:
 from .pii_masker import PIIMasker
 from .rules_corpus import get_default_rules
 from .schemas import AIAnalysisResult, ComplianceFlag
-from app.core.analysis_errors import AnalysisErrorCode, get_user_facing_message
+
+try:
+    from app.core.analysis_errors import AnalysisErrorCode, get_user_facing_message
+except ImportError:
+    try:
+        from backend.app.core.analysis_errors import AnalysisErrorCode, get_user_facing_message
+    except ImportError:
+        _backend_dir = Path(__file__).resolve().parent.parent.parent / "backend"
+        if str(_backend_dir) not in sys.path:
+            sys.path.insert(0, str(_backend_dir))
+        from app.core.analysis_errors import AnalysisErrorCode, get_user_facing_message
 
 
 logger = logging.getLogger(__name__)
@@ -191,7 +203,9 @@ class GeminiAssistEngine:
         if not self.gemini_api_key:
             raise ValueError("GEMINI_API_KEY / LLM_API_KEY is missing.")
 
-        candidate_models = _gemini_candidate_models()
+        candidate_models = list(dict.fromkeys(
+            _gemini_candidate_models() + ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+        ))
 
         last_error = None
         for model in candidate_models:
