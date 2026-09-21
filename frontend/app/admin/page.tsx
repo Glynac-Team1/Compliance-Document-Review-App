@@ -51,6 +51,14 @@ interface TeamMember {
   created_at: string;
   slug: string;
 }
+interface SupportRequestItem {
+  id: string;
+  subject: string;
+  message: string;
+  category: string;
+  status: string;
+  advisor_id: string;
+}
 
 interface CurrentUser {
   id?: string;
@@ -86,7 +94,9 @@ export default function AdminConsolePage() {
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"invite" | "team">("invite");
+  const [activeTab, setActiveTab] = useState<"invite" | "team" | "support">("invite");
+  const [supportRequests, setSupportRequests] = useState<SupportRequestItem[]>([]);
+  const [updatingSupportId, setUpdatingSupportId] = useState<string | null>(null);
 
   // Interactive Toast State
   const [toast, setToast] = useState<{
@@ -142,11 +152,14 @@ export default function AdminConsolePage() {
 
   async function fetchWorkspaceData(token: string) {
     try {
-      const [invRes, teamRes] = await Promise.all([
+      const [invRes, teamRes, supportRes] = await Promise.all([
         fetch(`${getApiBaseUrl()}/admin/invitations`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
         fetch(`${getApiBaseUrl()}/admin/team`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch(`${getApiBaseUrl()}/support/admin/requests`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
@@ -158,6 +171,10 @@ export default function AdminConsolePage() {
       if (teamRes.ok) {
         const teamData = await teamRes.json();
         setTeam(teamData.team || []);
+      }
+      if (supportRes.ok) {
+        const supportData = await supportRes.json();
+        setSupportRequests(supportData || []);
       }
     } catch (err) {
       console.error("Error loading admin data:", err);
@@ -516,6 +533,40 @@ export default function AdminConsolePage() {
     }
   }
 
+  async function handleUpdateSupportStatus(requestId: string, newStatus: string) {
+    setUpdatingSupportId(requestId);
+    const token = localStorage.getItem("auth_token");
+
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/support/admin/requests/${requestId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(formatApiError(data.detail, "Failed to update request status."));
+      }
+
+      setSupportRequests((prev) =>
+        prev.map((r) => (r.id === requestId ? { ...r, status: newStatus } : r))
+      );
+    } catch (err: any) {
+      setToast({
+        id: `support-update-error-${requestId}`,
+        type: "error",
+        title: "Update Failed",
+        message: err.message || "Failed to update the request status.",
+      });
+    } finally {
+      setUpdatingSupportId(null);
+    }
+  }
+
   function handleSignOut() {
     sessionStorage.removeItem("admin_authenticated");
     localStorage.removeItem("auth_token");
@@ -742,6 +793,16 @@ export default function AdminConsolePage() {
                 }`}
               >
                 Team Directory ({team.length})
+              </button>
+              <button
+                onClick={() => setActiveTab("support")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  activeTab === "support"
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Support ({supportRequests.length})
               </button>
             </div>
 
@@ -1226,6 +1287,77 @@ export default function AdminConsolePage() {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {activeTab === "support" && (
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-sm font-bold text-foreground">
+                  Support Requests ({supportRequests.length})
+                </h2>
+                <p className="text-[11px] text-muted-foreground">
+                  Tickets submitted by advisors in {currentUser?.workspace_name}
+                </p>
+              </div>
+            </div>
+
+            {supportRequests.length === 0 ? (
+              <div className="py-12 flex flex-col items-center justify-center text-center">
+                <div className="flex size-12 items-center justify-center rounded-2xl bg-muted/60 text-muted-foreground mb-3">
+                  <Mail className="size-6" />
+                </div>
+                <p className="text-xs font-semibold text-foreground">No support requests yet</p>
+                <p className="text-[11px] text-muted-foreground mt-1 max-w-sm">
+                  Tickets submitted by advisors will appear here.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {supportRequests.map((req) => {
+                  const statusColor =
+                    req.status === "resolved"
+                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                      : req.status === "in_progress"
+                      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                      : "bg-blue-500/10 text-blue-600 dark:text-blue-400";
+
+                  return (
+                    <div
+                      key={req.id}
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-border/80 bg-background/50 hover:bg-muted/30 transition-colors"
+                    >
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-xs text-foreground">{req.subject}</span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-muted text-muted-foreground border border-border">
+                            {req.category.replace("_", " ")}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${statusColor}`}>
+                            {req.status.replace("_", " ")}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground max-w-xl">{req.message}</p>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end sm:self-auto">
+                        <select
+                          value={req.status}
+                          disabled={updatingSupportId === req.id}
+                          onChange={(e) => handleUpdateSupportStatus(req.id, e.target.value)}
+                          className="h-8 rounded-lg border border-input bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50 cursor-pointer"
+                        >
+                          <option value="submitted">Submitted</option>
+                          <option value="in_progress">In Progress</option>
+                          <option value="resolved">Resolved</option>
+                        </select>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </main>

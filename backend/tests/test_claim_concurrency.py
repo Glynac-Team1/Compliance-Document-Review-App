@@ -1,5 +1,6 @@
 import pytest
 import uuid
+import asyncio
 from httpx import ASGITransport, AsyncClient
 from app.main import app
 from app.database import AsyncSessionLocal
@@ -8,8 +9,6 @@ from models import User, Role, Document, DocumentStatus, Review, AuditEvent, Not
 from sqlalchemy import delete
 from datetime import datetime, timezone, timedelta
 from app.core.security import create_session_token, hash_password
-
-
 
 
 @pytest.mark.asyncio
@@ -222,4 +221,154 @@ async def test_claim_lock_and_review_concurrency():
                 await db.execute(delete(AuditEvent).where(AuditEvent.actor_id.in_([advisor_id, officer1_id, officer2_id])))
                 await db.execute(delete(User).where(User.id.in_([advisor_id, officer1_id, officer2_id])))
                 await db.commit()
+
+
+
+@pytest.mark.asyncio
+async def test_true_concurrent_claim_only_one_succeeds():
+    """Fires two claim requests at the exact same time via asyncio.gather.
+    Exactly one must succeed (200) and the other must get 409 — this is what
+    actually exercises the race condition, unlike sequential awaited calls."""
+    advisor_id = uuid.uuid4()
+    officer1_id = uuid.uuid4()
+    officer2_id = uuid.uuid4()
+    doc_id = uuid.uuid4()
+
+    try:
+        async with AsyncSessionLocal() as db:
+            advisor = User(
+                id=advisor_id,
+                role=Role.advisor,
+                name="Concurrency Advisor",
+                email=f"advisor-{advisor_id}@example.com",
+                password_hash=hash_password("password123"),
+            )
+            officer1 = User(
+                id=officer1_id,
+                role=Role.officer,
+                name="Officer Racer1",
+                email=f"racer1-{officer1_id}@example.com",
+                password_hash=hash_password("password123"),
+            )
+            officer2 = User(
+                id=officer2_id,
+                role=Role.officer,
+                name="Officer Racer2",
+                email=f"racer2-{officer2_id}@example.com",
+                password_hash=hash_password("password123"),
+            )
+            db.add_all([advisor, officer1, officer2])
+            await db.commit()
+
+            doc = Document(
+                id=doc_id,
+                advisor_id=advisor_id,
+                original_filename="race_condition_test.pdf",
+                file_reference="race_condition_test.pdf",
+                file_type="PDF",
+                status=DocumentStatus.pending,
+            )
+            db.add(doc)
+            await db.commit()
+
+        token1 = create_session_token(str(officer1_id), Role.officer)
+        token2 = create_session_token(str(officer2_id), Role.officer)
+
+        # Two genuinely concurrent HTTP clients, firing at the same time via gather.
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client1, \
+                   AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client2:
+
+            res1, res2 = await asyncio.gather(
+                client1.post(f"/documents/{doc_id}/claim", headers={"Authorization": f"Bearer {token1}"}),
+                client2.post(f"/documents/{doc_id}/claim", headers={"Authorization": f"Bearer {token2}"}),
+            )
+
+        statuses = sorted([res1.status_code, res2.status_code])
+        assert statuses == [200, 409], f"Expected exactly one 200 and one 409, got {statuses}"
+
+        # Confirm the DB ended up in a consistent state: locked by exactly one officer.
+        async with AsyncSessionLocal() as db:
+            final_doc = await db.get(Document, doc_id)
+            assert final_doc.locked_by_officer_id in (officer1_id, officer2_id)
+            assert final_doc.status == DocumentStatus.in_review
+
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Notification).where(Notification.document_id == doc_id))
+            await db.execute(delete(Review).where(Review.document_id == doc_id))
+            await db.execute(delete(AuditEvent).where(AuditEvent.document_id == doc_id))
+            await db.execute(delete(Document).where(Document.id == doc_id))
+            await db.execute(delete(AuditEvent).where(AuditEvent.actor_id.in_([advisor_id, officer1_id, officer2_id])))
+            await db.execute(delete(User).where(User.id.in_([advisor_id, officer1_id, officer2_id])))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_expired_lock_can_still_be_reclaimed_atomically():
+    """Confirms the atomic UPDATE's WHERE clause correctly allows takeover
+    when the existing lock has expired (not just when it's absent)."""
+    advisor_id = uuid.uuid4()
+    officer1_id = uuid.uuid4()
+    officer2_id = uuid.uuid4()
+    doc_id = uuid.uuid4()
+
+    try:
+        async with AsyncSessionLocal() as db:
+            advisor = User(
+                id=advisor_id,
+                role=Role.advisor,
+                name="Expiry Advisor",
+                email=f"advisor-{advisor_id}@example.com",
+                password_hash=hash_password("password123"),
+            )
+            officer1 = User(
+                id=officer1_id,
+                role=Role.officer,
+                name="Officer Stale",
+                email=f"stale-{officer1_id}@example.com",
+                password_hash=hash_password("password123"),
+            )
+            officer2 = User(
+                id=officer2_id,
+                role=Role.officer,
+                name="Officer Fresh",
+                email=f"fresh-{officer2_id}@example.com",
+                password_hash=hash_password("password123"),
+            )
+            db.add_all([advisor, officer1, officer2])
+            await db.commit()
+
+            expired_time = datetime.now(timezone.utc) - timedelta(minutes=35)
+            doc = Document(
+                id=doc_id,
+                advisor_id=advisor_id,
+                original_filename="expired_lock_test.pdf",
+                file_reference="expired_lock_test.pdf",
+                file_type="PDF",
+                status=DocumentStatus.in_review,
+                locked_by_officer_id=officer1_id,
+                locked_at=expired_time,
+            )
+            db.add(doc)
+            await db.commit()
+
+        token2 = create_session_token(str(officer2_id), Role.officer)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.post(
+                f"/documents/{doc_id}/claim",
+                headers={"Authorization": f"Bearer {token2}"},
+            )
+            assert res.status_code == 200
+            assert res.json()["locked_by_officer_id"] == str(officer2_id)
+
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Notification).where(Notification.document_id == doc_id))
+            await db.execute(delete(Review).where(Review.document_id == doc_id))
+            await db.execute(delete(AuditEvent).where(AuditEvent.document_id == doc_id))
+            await db.execute(delete(Document).where(Document.id == doc_id))
+            await db.execute(delete(AuditEvent).where(AuditEvent.actor_id.in_([advisor_id, officer1_id, officer2_id])))
+            await db.execute(delete(User).where(User.id.in_([advisor_id, officer1_id, officer2_id])))
+            await db.commit()
 
