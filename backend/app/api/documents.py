@@ -7,6 +7,7 @@ from pydantic import BaseModel
 import magic
 import asyncio
 import uuid
+import os
 from datetime import datetime, timezone, timedelta
 from models import AIAnalysis, Flag, AnalysisStatus, AuditEvent, AuditAction, User, Rule, Notification
 from app.core.events import event_manager
@@ -16,6 +17,12 @@ from models import Role, DocumentStatus, Document, Review, Decision
 
 
 CLAIM_LOCK_TIMEOUT_MINUTES = 30
+
+ALLOWED_FILE_TYPES = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
 
 
 def is_lock_expired(doc: Document) -> bool:
@@ -47,6 +54,12 @@ async def upload_document(
 ):
     advisor_id = uuid.UUID(user_token["sub"]) if isinstance(user_token["sub"], str) else user_token["sub"]
 
+    filename = file.filename or ""
+    file_ext = os.path.splitext(filename)[1].lower()
+    expected_mime = ALLOWED_FILE_TYPES.get(file_ext)
+    if expected_mime is None:
+        raise HTTPException(415, "Unsupported file type. Only PDF, DOCX, and XLSX files are accepted.")
+
     # Read the file in chunks
     MAX_SIZE = settings.max_upload_mb * 1024 * 1024
     file_size = 0
@@ -59,18 +72,16 @@ async def upload_document(
 
     # Validate MIME type (first 2048 bytes only)
     mime = magic.from_buffer(bytes(contents[:2048]), mime=True)
-    if mime not in settings.allowed_mime_types:
+    if mime != expected_mime or mime not in settings.allowed_mime_types:
         raise HTTPException(415, f"Unsupported file type: {mime}")
 
     # Stream contents to MinIO
     file_reference = await asyncio.to_thread(
         upload_file_to_minio,
         contents,
-        file.filename,
+        filename,
         mime
     )
-
-    file_ext = file.filename.split(".")[-1] if "." in file.filename else "unknown"
 
     thread_root_id = None
     audit_action = AuditAction.submitted
@@ -108,9 +119,9 @@ async def upload_document(
         advisor_id=advisor_id,
         workspace_id=advisor_workspace_id,
         status=DocumentStatus.pending,
-        original_filename=file.filename,
+        original_filename=filename,
         file_reference=file_reference,
-        file_type=file_ext,
+        file_type=file_ext.lstrip("."),
         previous_version_id=previous_version_id,
         thread_root_id=thread_root_id
     )
@@ -168,7 +179,7 @@ async def upload_document(
     return {
         "document_id": str(new_document.id),
         "status": new_document.status.value,
-        "filename": file.filename,
+        "filename": filename,
         "thread_root_id": str(new_document.thread_root_id),
         "previous_version_id": str(new_document.previous_version_id) if new_document.previous_version_id else None
     }
