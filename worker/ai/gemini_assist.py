@@ -27,6 +27,7 @@ except ImportError:
 from .pii_masker import PIIMasker
 from .rules_corpus import get_default_rules
 from .schemas import AIAnalysisResult, ComplianceFlag
+from app.core.analysis_errors import AnalysisErrorCode, get_user_facing_message
 
 
 logger = logging.getLogger(__name__)
@@ -301,13 +302,16 @@ class GeminiAssistEngine:
             model=model,
         )
 
-    def _fallback_response(self) -> Dict[str, Any]:
+    def _fallback_response(self, technical_error: str = "") -> Dict[str, Any]:
         return {
-            "summary": "AI Assist unavailable (API Key missing, rate-limited, or service degraded). Officer manual review required.",
+            "summary": get_user_facing_message(AnalysisErrorCode.LLM_FAILED),
             "flags": [],
             "degraded": True,
             "provider": "degraded_fallback",
             "model": None,
+            "error_code": AnalysisErrorCode.LLM_FAILED.value,
+            "user_facing_error": get_user_facing_message(AnalysisErrorCode.LLM_FAILED),
+            "technical_error": technical_error,
         }
 
     def _call_provider(self, provider: str, payload: Dict[str, Any]) -> Tuple[str, str]:
@@ -333,7 +337,7 @@ class GeminiAssistEngine:
             raise TypeError("mapping must be a mapping of placeholders to original values")
         if not (self.gemini_api_key or self.groq_api_key):
             logger.warning("No LLM API key configured; returning degraded analysis")
-            return fallback
+            return self._fallback_response("ConfigurationError: missing LLM API key")
 
         providers = [self.provider]
         secondary = "groq" if self.provider == "gemini" else "gemini"
@@ -341,6 +345,7 @@ class GeminiAssistEngine:
         if secondary_key:
             providers.append(secondary)
 
+        last_error = None
         for index, provider in enumerate(providers):
             try:
                 payload = self._build_payload(
@@ -364,11 +369,21 @@ class GeminiAssistEngine:
                     "model": validated.model,
                 }
             except Exception as error:
+                last_error = error
                 if index == 0 and len(providers) > 1:
-                    logger.warning("Primary LLM provider %s failed; trying %s: %s", provider, secondary, error)
+                    logger.warning(
+                        "Primary LLM provider failed; provider=%s exception_type=%s",
+                        provider, type(error).__name__,
+                    )
                 else:
-                    logger.error("LLM analysis failed for provider %s: %s", provider, error)
-        return fallback
+                    logger.error(
+                        "LLM analysis failed: provider=%s exception_type=%s",
+                        provider, type(error).__name__,
+                    )
+        technical_error = "unknown"
+        if last_error is not None:
+            technical_error = f"{type(last_error).__name__}: {last_error}"
+        return self._fallback_response(technical_error)
 
     def analyze_document(
         self, document_text: str, rules_context: Optional[List[Dict[str, str]]] = None
