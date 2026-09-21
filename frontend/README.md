@@ -1,36 +1,62 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Compliance Document Review Frontend
 
-## Getting Started
+This is the Next.js 16 App Router frontend for the Compliance Document Review
+application. It provides advisor uploads and document tracking, the officer review
+queue, AI Assist results, manual decisions, workspace administration, and live
+notification/synchronization updates.
 
-First, run the development server:
+## Run locally
+
+The recommended workflow runs the frontend through the repository Compose file:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+docker compose up --build frontend backend worker
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open <http://localhost:3000>. The frontend container talks to the backend at
+`http://localhost:8000` through the existing API configuration.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+For frontend-only development, install dependencies in this directory and start
+Next.js:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm ci
+npm run dev
+```
 
-## Learn More
+## Main routes
 
-To learn more about Next.js, take a look at the following resources:
+| Route | Purpose |
+| --- | --- |
+| `/login` | Sign in |
+| `/create-workspace` | Create the initial workspace administrator |
+| `/accept-invite` | Accept a workspace invitation |
+| `/advisor` | Upload and track documents and revisions |
+| `/compliance-officer` | Claim documents, inspect AI Assist, and make decisions |
+| `/admin` | Manage workspace members and invitations |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The backend remains authoritative for authentication, role checks, workspace
+isolation, uploads, analysis status, and review decisions. Frontend route guards
+improve UX but are not a security boundary.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Analysis states
 
-## Deploy on Vercel
+The officer review panel handles pending, ready, and failed AI analysis. Failed
+analysis responses may include `error_code`, `user_facing_error`, and
+`manual_review_required`. The UI displays the persisted cause-specific message and
+keeps the manual decision flow available; it does not treat an error as a normal
+compliance result.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Validation
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Run these commands from `frontend/`:
+
+```bash
+npm run lint
+npx tsc --noEmit
+npm test -- --run
+npm run build
+```
+
+The Vitest suite includes degraded-state rendering coverage in
+`__tests__/degraded-state.test.tsx`.
