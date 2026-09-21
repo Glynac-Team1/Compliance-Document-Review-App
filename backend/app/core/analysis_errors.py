@@ -23,7 +23,7 @@ class AnalysisErrorCode(str, Enum):
 USER_FACING_MESSAGES = {
     AnalysisErrorCode.UNSUPPORTED_FORMAT: (
         "This file format is not supported for automated AI analysis. "
-        "Please upload a PDF, DOCX, XLSX, TXT, or MD file."
+        "Please upload a PDF, DOCX, or XLSX file."
     ),
     AnalysisErrorCode.FILE_EMPTY: "The uploaded document is empty and could not be analyzed.",
     AnalysisErrorCode.PDF_NO_TEXT: (

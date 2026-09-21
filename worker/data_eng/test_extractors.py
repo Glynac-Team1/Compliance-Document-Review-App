@@ -63,12 +63,6 @@ class TestTextExtractor(unittest.TestCase):
         self._tmp_files.append(path)
         return path
 
-    def test_txt_extraction(self):
-        path = self._tmp_path(".txt")
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("Sample document content for compliance review.")
-        self.assertIn("compliance review", TextExtractor.extract(path))
-
     def test_docx_extraction(self):
         path = self._tmp_path(".docx")
         _make_docx(path, "Guaranteed 20% annual returns on this fund.")
@@ -120,18 +114,22 @@ class TestTextExtractor(unittest.TestCase):
                 TextExtractor.extract(path)
         self.assertEqual(context.exception.code, AnalysisErrorCode.PDF_PARTIAL_EXTRACTION)
 
-    def test_unsupported_extension_raises(self):
-        path = self._tmp_path(".exe")
-        with open(path, "wb") as f:
-            f.write(b"\x00\x01\x02binary-junk")
-        with self.assertRaises(ExtractionError):
-            TextExtractor.extract(path)
+    def test_unsupported_extensions_raise(self):
+        for suffix in (".exe", ".txt", ".md", ""):
+            path = self._tmp_path(suffix)
+            with open(path, "wb") as f:
+                f.write(b"unsupported file content")
+            with self.subTest(suffix=suffix):
+                with self.assertRaises(ExtractionError) as context:
+                    TextExtractor.extract(path)
+                self.assertEqual(context.exception.code, AnalysisErrorCode.UNSUPPORTED_FORMAT)
 
     def test_empty_file_raises(self):
-        path = self._tmp_path(".txt")
+        path = self._tmp_path(".pdf")
         open(path, "w").close()
-        with self.assertRaises(ExtractionError):
+        with self.assertRaises(ExtractionError) as context:
             TextExtractor.extract(path)
+        self.assertEqual(context.exception.code, AnalysisErrorCode.FILE_EMPTY)
 
     def test_corrupted_docx_raises(self):
         path = self._tmp_path(".docx")

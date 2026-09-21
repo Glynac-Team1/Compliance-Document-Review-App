@@ -1,12 +1,11 @@
 """
 Format-aware text extraction for compliance document submissions.
 
-Each format gets a purpose-built extractor rather than one generic
-"read anything" function — a generic extractor produces noisier text,
-which degrades every downstream stage (masking recall, chunk quality,
-embedding relevance). DOCX/TXT use stdlib-only parsing to avoid extra
-dependencies; PDF/XLSX use pdfplumber/openpyxl since hand-rolling either
-binary format isn't worth it.
+Each supported format gets a purpose-built extractor rather than one
+generic "read anything" function. This keeps unsupported files out of
+the analysis pipeline and preserves extraction quality downstream.
+DOCX uses stdlib-only parsing to avoid extra dependencies; PDF/XLSX use
+pdfplumber/openpyxl since hand-rolling either binary format isn't worth it.
 """
 import os
 import zipfile
@@ -33,8 +32,7 @@ class ExtractionError(ValueError):
 
 
 class TextExtractor:
-    """Data Engineering text extractor for PDF, DOCX, and XLSX files.
-    Conforms to the spec: 10MB limit, exactly these 3 formats."""
+    """Text extractor for PDF, DOCX, and XLSX files."""
 
     @staticmethod
     def extract_docx(file_path: str) -> str:
@@ -125,17 +123,6 @@ class TextExtractor:
             raise ExtractionError(AnalysisErrorCode.XLSX_EMPTY)
         return text
 
-    @staticmethod
-    def extract_txt(file_path: str) -> str:
-        try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as file:
-                text = file.read()
-        except OSError as e:
-            raise ExtractionError(AnalysisErrorCode.TEXT_READ_ERROR, str(e)) from e
-        if not text.strip():
-            raise ExtractionError(AnalysisErrorCode.FILE_EMPTY)
-        return text
-
     @classmethod
     def extract(cls, file_path: str) -> str:
         """Dispatches on extension, then validates the result isn't
@@ -147,8 +134,6 @@ class TextExtractor:
             ".pdf": cls.extract_pdf,
             ".docx": cls.extract_docx,
             ".xlsx": cls.extract_xlsx,
-            ".txt": cls.extract_txt,
-            ".md": cls.extract_txt,
         }
 
         extractor = dispatch.get(ext)
