@@ -30,6 +30,7 @@ def is_lock_expired(doc: Document) -> bool:
 from app.config import settings
 from app.database import get_db
 from app.core.storage import upload_file_to_minio
+from app.core.analysis_errors import AnalysisErrorCode, get_user_facing_message
 from celery import Celery
 
 celery_client = Celery("compliance_review", broker=settings.redis_url)
@@ -397,13 +398,16 @@ async def get_analysis(
         raise HTTPException(202, "Analysis is still processing")
 
     if analysis.status == AnalysisStatus.error:
-        error_type = "unsupported_for_ai"
-        if doc and doc.ai_analysis and isinstance(doc.ai_analysis, dict):
-            error_type = doc.ai_analysis.get("error_type", "unsupported_for_ai")
-
-        summary_msg = analysis.summary or (
-            "This file format or document structure is not supported for automated AI analysis "
-            "(e.g., scanned/image-only PDF or empty file). Please proceed with manual revision."
+        stored_analysis = doc.ai_analysis if doc and isinstance(doc.ai_analysis, dict) else {}
+        error_code = analysis.error_code or stored_analysis.get("error_code")
+        error_type = stored_analysis.get("error_type") or (
+            error_code.lower() if error_code else AnalysisErrorCode.UNKNOWN_ANALYSIS_ERROR.value.lower()
+        )
+        summary_msg = (
+            analysis.user_facing_error
+            or stored_analysis.get("user_facing_error")
+            or analysis.summary
+            or (get_user_facing_message(error_code) if error_code else get_user_facing_message(AnalysisErrorCode.UNKNOWN_ANALYSIS_ERROR))
         )
 
         return {
@@ -411,6 +415,8 @@ async def get_analysis(
             "flags": [],
             "precedents": [],
             "error_type": error_type,
+            "error_code": error_code,
+            "user_facing_error": summary_msg,
             "manual_review_required": True,
         }
 
