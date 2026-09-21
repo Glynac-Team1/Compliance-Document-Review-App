@@ -203,7 +203,9 @@ class GeminiAssistEngine:
         if not self.gemini_api_key:
             raise ValueError("GEMINI_API_KEY / LLM_API_KEY is missing.")
 
-        candidate_models = _gemini_candidate_models()
+        candidate_models = list(dict.fromkeys(
+            _gemini_candidate_models() + ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+        ))
 
         last_error = None
         for model in candidate_models:
