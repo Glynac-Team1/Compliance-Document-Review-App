@@ -277,32 +277,42 @@ export default function ReviewPanel({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {tab === 'AI Assist' && (
           <div className="flex flex-col gap-7 p-5 sm:p-6">
-            {(aiData.error_code || aiData.error_type || aiData.manual_review_required || aiData.degraded) && (
-              <div data-testid="degraded-state-banner" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="size-5 shrink-0 text-amber-600 mt-0.5" />
-                  <div className="flex-1">
-                    <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                      {aiData.degraded
-                        ? 'AI Assist Degraded / Fallback Mode'
-                        : 'File Not Supported for Automated AI Analysis'}
-                    </h3>
-                    <p className="mt-1 text-xs text-amber-800/90 dark:text-amber-300/90 leading-5">
-                      {aiData.degraded
-                        ? 'AI Assist is running in degraded fallback mode. Manual review is required for this document.'
-                        : 'Automated screening was bypassed; please proceed with manual review.'}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setTab('Manual Decision')}
-                      className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-amber-700 transition"
-                    >
-                      Proceed with Manual Decision &rarr;
-                    </button>
+            {(() => {
+              const isUnsupported =
+                aiData.error_type === 'unsupported_for_ai' ||
+                aiData.error_code === 'UNSUPPORTED_FORMAT'
+              const hasAlert = Boolean(
+                aiData.error_code || aiData.error_type || aiData.manual_review_required || aiData.degraded
+              )
+              if (!hasAlert) return null
+
+              return (
+                <div data-testid="degraded-state-banner" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="size-5 shrink-0 text-amber-600 mt-0.5" />
+                    <div className="flex-1">
+                      <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                        {isUnsupported
+                          ? 'File Not Supported for Automated AI Analysis'
+                          : 'AI Assist Degraded / Fallback Mode'}
+                      </h3>
+                      <p className="mt-1 text-xs text-amber-800/90 dark:text-amber-300/90 leading-5">
+                        {isUnsupported
+                          ? 'Automated screening was bypassed; please proceed with manual review.'
+                          : 'AI Assist is running in degraded fallback mode. Manual review is required for this document.'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setTab('Manual Decision')}
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-amber-700 transition"
+                      >
+                        Proceed with Manual Decision &rarr;
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )
+            })()}
 
             <div className="rounded-lg border border-primary/15 bg-primary/4 p-4">
               <div className="mb-2 flex items-center justify-between">
@@ -331,10 +341,10 @@ export default function ReviewPanel({
                   <span>
                     {isLoadingAnalysis
                       ? 'Evaluating document against rules...'
-                      : aiData.degraded
+                      : (aiData.degraded || aiData.error_code === 'LLM_FAILED' || aiData.error_type === 'llm_failed' || aiData.error_type === 'ai_unavailable')
                       ? 'Automated rule checking unavailable due to degraded service. Officer manual review required.'
                       : (aiData.error_code || aiData.error_type || aiData.manual_review_required)
-                      ? aiData.error_type === 'unsupported_for_ai'
+                      ? (aiData.error_type === 'unsupported_for_ai' || aiData.error_code === 'UNSUPPORTED_FORMAT')
                         ? 'Automated rule checking bypassed due to unsupported file format. Manual revision/review required.'
                         : 'Automated rule checking was bypassed. Manual revision/review required.'
                       : 'No flags detected.'}

@@ -410,10 +410,17 @@ async def get_analysis(
             or (get_user_facing_message(error_code) if error_code else get_user_facing_message(AnalysisErrorCode.UNKNOWN_ANALYSIS_ERROR))
         )
 
+        is_degraded = bool(
+            stored_analysis.get("degraded")
+            or (error_code in (AnalysisErrorCode.LLM_FAILED.value, AnalysisErrorCode.RAG_RETRIEVAL_FAILED.value, AnalysisErrorCode.EMBEDDING_FAILED.value))
+            or (error_type in ("llm_failed", "ai_unavailable", "degraded"))
+        )
+
         return {
             "summary": summary_msg,
             "flags": [],
             "precedents": [],
+            "degraded": is_degraded,
             "error_type": error_type,
             "error_code": error_code,
             "user_facing_error": summary_msg,
