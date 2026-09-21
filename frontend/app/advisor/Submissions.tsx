@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, FileText, Filter, Search, X, Upload, RefreshCw, Loader2, History } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
 import { useToast } from '@/components/Toast'
+import AuditLogModal from '@/components/AuditLogModal'
 import type { DocumentItem, DocumentThread, DocumentThreadVersion } from '@/types/document'
 
 
@@ -57,6 +58,7 @@ export default function Submissions({
   const [threadData, setThreadData] = useState<DocumentThread | null>(null)
   const [_isLoadingThread, setIsLoadingThread] = useState(false)
   const [isResubmitting, setIsResubmitting] = useState(false)
+  const [auditDoc, setAuditDoc] = useState<DocumentItem | null>(null)
   const resubmitInputRef = useRef<HTMLInputElement>(null)
 
   const fetchDocuments = async () => {
@@ -313,6 +315,13 @@ export default function Submissions({
                   </button>
                 )}
                 <button
+                  type="button"
+                  onClick={() => setAuditDoc(selectedDocument)}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
+                >
+                  Audit Log
+                </button>
+                <button
                   onClick={() => setSelectedDocument(null)}
                   className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
                 >
@@ -465,12 +474,23 @@ export default function Submissions({
                             <StatusBadge status={item.status} />
                           </td>
                           <td className="px-5 py-4 text-right">
-                            <button
-                              onClick={() => setSelectedDocument(item)}
-                              className="text-xs font-semibold text-primary opacity-0 group-hover:opacity-100"
-                            >
-                              View
-                            </button>
+                            <div className="flex items-center justify-end gap-2.5">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setAuditDoc(item)
+                                }}
+                                className="text-xs font-semibold text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition cursor-pointer"
+                              >
+                                Audit Log
+                              </button>
+                              <button
+                                onClick={() => setSelectedDocument(item)}
+                                className="text-xs font-semibold text-primary opacity-0 group-hover:opacity-100 transition cursor-pointer"
+                              >
+                                View
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       )
@@ -505,6 +525,15 @@ export default function Submissions({
           </div>
         </div>
       </div>
+
+      {auditDoc && (
+        <AuditLogModal
+          isOpen={!!auditDoc}
+          onClose={() => setAuditDoc(null)}
+          documentId={auditDoc.id}
+          documentTitle={auditDoc.name || auditDoc.filename}
+        />
+      )}
     </section>
   )
 }
