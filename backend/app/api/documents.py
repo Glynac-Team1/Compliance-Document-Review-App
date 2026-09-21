@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import update, select
+from sqlalchemy import update, select,or_
 from pydantic import BaseModel
 import magic
 import asyncio
@@ -196,87 +196,97 @@ async def claim_document(
             raise HTTPException(403, "Access denied. Document belongs to another workspace.")
 
     now = datetime.now(timezone.utc)
+    expiry_cutoff = now - timedelta(minutes=CLAIM_LOCK_TIMEOUT_MINUTES)
+    previous_locked_by = doc.locked_by_officer_id
 
-    # Already claimed by this officer (idempotent, e.g. re-opening or page refresh)
-    if doc.locked_by_officer_id == officer_id:
-        doc.status = DocumentStatus.in_review
-        doc.locked_at = now
+    # Atomic claim: a single UPDATE ... WHERE, guarded by the lock condition.
+    # PostgreSQL row-locks the row during this UPDATE, so two concurrent claim
+    # requests can never both succeed: the second re-evaluates WHERE after the
+    # first commits and finds it no longer matches, updating 0 rows.
+    claim_stmt = (
+        update(Document)
+        .where(
+            Document.id == document_id,
+            or_(
+                Document.locked_by_officer_id.is_(None),
+                Document.locked_by_officer_id == officer_id,
+                Document.locked_at.is_(None),
+                Document.locked_at < expiry_cutoff,
+            ),
+        )
+        .values(status=DocumentStatus.in_review, locked_by_officer_id=officer_id, locked_at=now)
+        .returning(Document.id)
+    )
+    result = await db.execute(claim_stmt)
+    claimed_id = result.scalar_one_or_none()
+
+    if claimed_id is None:
+        # Someone else holds a valid (non-expired) lock.
+        current = await db.scalar(select(Document).where(Document.id == document_id))
+        claimer = await db.scalar(select(User).where(User.id == current.locked_by_officer_id)) if current else None
+        claimer_name = claimer.name if claimer else "another officer"
+        raise HTTPException(409, f"This document is already being reviewed by {claimer_name}.")
+
+    is_idempotent = previous_locked_by == officer_id
+
+    if is_idempotent:
         await db.commit()
         await event_manager.broadcast_all({
             "type": "sync",
             "event": "document_claimed",
-            "document_id": str(doc.id),
+            "document_id": str(document_id),
         })
         return {
-            "document_id": str(doc.id),
-            "status": doc.status.value,
+            "document_id": str(document_id),
+            "status": DocumentStatus.in_review.value,
             "locked_by_officer_id": str(officer_id),
-            "locked_at": doc.locked_at.isoformat(),
+            "locked_at": now.isoformat(),
             "message": "Document already claimed by you",
         }
 
-    # Claimed by another officer
-    if doc.locked_by_officer_id is not None and doc.locked_by_officer_id != officer_id:
-        if not is_lock_expired(doc):
-            claimer = await db.scalar(select(User).where(User.id == doc.locked_by_officer_id))
-            claimer_name = claimer.name if claimer else "another officer"
-            raise HTTPException(
-                409,
-                f"This document is already being reviewed by {claimer_name}."
-            )
-        # If lock expired, allow takeover below
-
-    # Unclaimed or previous lock expired: Claim / Take over
-    doc.status = DocumentStatus.in_review
-    doc.locked_by_officer_id = officer_id
-    doc.locked_at = now
-
     db.add(AuditEvent(
         actor_id=officer_id,
-        document_id=doc.id,
+        document_id=document_id,
         action=AuditAction.claimed,
     ))
 
-    # Notify advisor that review has started
     officer = await db.scalar(select(User).where(User.id == officer_id))
     officer_name = officer.name if officer else "A compliance officer"
     claim_msg = f"{officer_name} has started reviewing '{doc.original_filename}'."
     db.add(Notification(
         user_id=doc.advisor_id,
         workspace_id=doc.workspace_id,
-        document_id=doc.id,
+        document_id=document_id,
         message=claim_msg,
     ))
 
-    # Automatically mark unread notifications on this document for this officer as read!
     await db.execute(
         update(Notification)
-        .where(Notification.user_id == officer_id, Notification.document_id == doc.id, Notification.is_read == False)
+        .where(Notification.user_id == officer_id, Notification.document_id == document_id, Notification.is_read == False)
         .values(is_read=True)
     )
 
     await db.commit()
 
-    # Broadcast real-time events
     await event_manager.send_to_user(
         doc.advisor_id,
         {
             "type": "notification",
             "message": claim_msg,
-            "document_id": str(doc.id),
+            "document_id": str(document_id),
         },
     )
     await event_manager.broadcast_all({
         "type": "sync",
         "event": "document_claimed",
-        "document_id": str(doc.id),
+        "document_id": str(document_id),
     })
 
     return {
-        "document_id": str(doc.id),
+        "document_id": str(document_id),
         "status": DocumentStatus.in_review.value,
         "locked_by_officer_id": str(officer_id),
-        "locked_at": doc.locked_at.isoformat(),
+        "locked_at": now.isoformat(),
         "message": "Document claimed successfully",
     }
 
