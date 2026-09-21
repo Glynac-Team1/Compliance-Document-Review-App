@@ -167,6 +167,9 @@ class AIAnalysis(Base):
     model_name: Mapped[str | None] = mapped_column(String,nullable=True)
     status: Mapped[AnalysisStatus] = mapped_column(Enum(AnalysisStatus), default=AnalysisStatus.pending, nullable=False)
     error_message: Mapped[str | None] = mapped_column(String, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    user_facing_error: Mapped[str | None] = mapped_column(String, nullable=True)
+    technical_error: Mapped[str | None] = mapped_column(String, nullable=True)
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
