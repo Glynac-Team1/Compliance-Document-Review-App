@@ -25,7 +25,7 @@ Diagrams are in [Mermaid](https://mermaid.js.org/); they render natively on GitH
 
 ```mermaid
 flowchart TB
-    subgraph Client["🟦 Browser — React SPA"]
+    subgraph Client["🟦 Browser — Next.js App Router"]
         AdvUI["Advisor Dashboard<br/>submit · track · notifications"]
         OffUI["Officer Dashboard<br/>queue · split-pane review · AI assist"]
     end
@@ -34,7 +34,7 @@ flowchart TB
         Auth["Auth & Role Middleware<br/>server-side 403 enforcement"]
         DocAPI["Document & Review Endpoints<br/>upload · state machine · decisions"]
         NotifAPI["Notifications Endpoints"]
-        AuditAPI["Audit Log<br/>append-only writes"]
+        AuditAPI["Audit Events<br/>recorded writes"]
     end
 
     subgraph AsyncLayer["🟨 Async Processing"]
@@ -43,8 +43,8 @@ flowchart TB
     end
 
     subgraph AIData["🟪 AI / Data Engineering Pipeline"]
-        Extract["Text Extraction<br/>pdfplumber · python-docx · openpyxl"]
-        Mask["PII Masker<br/>Presidio + custom regex"]
+        Extract["Text Extraction<br/>pdfplumber · DOCX XML · openpyxl"]
+        Mask["PII Masker<br/>ordered custom regex"]
         Embed["Chunk + Embed<br/>sentence-transformers, local"]
         Retrieve["Vector Retrieval<br/>rules · disclosures · precedents"]
         LLM["LLM Call<br/>Gemini / Groq, JSON-schema output"]
@@ -53,7 +53,7 @@ flowchart TB
 
     subgraph Storage["🟧 Storage"]
         PG[("PostgreSQL + pgvector<br/>users · documents · reviews · flags<br/>audit_events · notifications<br/>pii_mappings · rules · precedents")]
-        Files[("File Storage<br/>local volume / S3-compatible bucket")]
+        Files[("MinIO<br/>S3-compatible object storage")]
     end
 
     External[["⬜ Third-party LLM API<br/>Gemini / Groq free tier"]]
@@ -95,12 +95,12 @@ flowchart TB
 
 ### Explanation
 
-- **Client tier** is a single React SPA with role-gated routes; both dashboards call the same FastAPI backend, never the AI pipeline directly.
+- **Client tier** is a Next.js App Router application with role-gated routes; both dashboards call the same FastAPI backend, never the AI pipeline directly.
 - **Edge API** is the only thing the browser talks to. Auth middleware runs on *every* request and independently re-verifies role — this is what makes the role boundary hold at the API rather than only in the UI.
-- **Async layer** exists because AI analysis cannot sit in the request/response cycle of the upload endpoint: free-tier LLM latency plus rate limits would make `POST /documents` unacceptably slow or flaky. Celery + Redis decouples "save the file and confirm to the advisor" from "run the AI pipeline," with natural retry/backoff semantics.
+- **Async layer** exists because AI analysis cannot sit in the request/response cycle of the upload endpoint: LLM latency plus rate limits would make `POST /documents` unacceptably slow or flaky. Celery + Redis decouples "save the file and confirm to the advisor" from "run the AI pipeline." Provider calls use bounded retry/backoff where configured; analysis failures are persisted rather than silently retried by the task.
 - **The single most important edge in this diagram** is the thick edge from `LLM` to the external provider, labeled *"masked text ONLY leaves the app here."* Everything upstream (extraction, masking) happens inside the app's own process — nothing crosses the network boundary until after masking. This is architectural enforcement of the privacy wall, not just a coding convention.
 - **Storage** is split: Postgres holds all structured/relational/vector data (single system, per the pgvector requirement); raw files live on a separate volume/bucket referenced by `file_reference`, keeping large binary blobs out of the relational database.
-- **Graceful degradation** falls naturally out of this shape: if `LLM` fails, the worker writes `ai_analyses.status = error` and the officer-facing `GET /documents/{id}/analysis` endpoint returns a structured `503` — the review UI and decision endpoint never depend on the worker succeeding.
+- **Fail-closed degradation** is explicit: storage, extraction, embedding, retrieval, and LLM failures set `ai_analyses.status = error`, persist an `error_code`, safe `user_facing_error`, and internal technical detail. The officer-facing analysis endpoint returns that structured error payload, while manual review remains available.
 
 ---
 
@@ -115,7 +115,7 @@ flowchart LR
     end
 
     subgraph Privacy["🟪 2. Privacy Boundary — AI"]
-        NER["Presidio NER + regex recognizers<br/>names · emails · phones · SSNs<br/>account numbers · $ near a name"]
+        NER["Ordered regex masking<br/>names · emails · phones · SSNs<br/>account numbers · currency"]
         Map[("pii_mappings table<br/>placeholder ↔ real value")]
         Masked["Masked text<br/>[CLIENT_1] used $[AMOUNT_1] ..."]
         Ext --> NER --> Masked
@@ -123,8 +123,8 @@ flowchart LR
     end
 
     subgraph Chunk["🟪 3. Chunking + Embedding — Data Engineering"]
-        Split["Recursive splitter<br/>atomic chunks for rules,<br/>overlapping window for submissions"]
-        Enc["Local encoder<br/>BAAI/bge-small-en-v1.5<br/>384-dim, sentence-transformers"]
+        Split["Sentence-aware splitter<br/>800-char chunks,<br/>150-char overlap"]
+        Enc["Local encoder<br/>BAAI/bge-base-en-v1.5<br/>768-dim, sentence-transformers"]
         Masked --> Split --> Enc
     end
 
@@ -196,7 +196,7 @@ sequenceDiagram
     participant O as 🟦 Officer (browser)
 
     A->>API: POST /documents (file)
-    API->>DB: insert documents(status=pending_review)
+    API->>DB: insert documents(status=pending) + ai_analyses(status=pending)
     API->>Q: enqueue analyze_document(id)
     API-->>A: 201 Created
 
@@ -220,7 +220,7 @@ sequenceDiagram
 
     O->>API: GET /documents/{id}/analysis
     API->>DB: select ai_analyses/flags
-    API-->>O: summary + flags (or 503 if not ready/error)
+    API-->>O: summary + flags, or structured error_code/user_facing_error
 
     O->>API: POST /documents/{id}/review (decision, comment)
     API->>DB: insert reviews
@@ -244,40 +244,31 @@ The `documents.status` column drives what each dashboard shows and which endpoin
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending_review: Advisor submits
+    [*] --> pending: Advisor submits
 
-    pending_review --> analyzing: Worker picks up job
-    analyzing --> ready: LLM analysis succeeds
-    analyzing --> error: LLM/pipeline failure
+    pending --> in_review: Officer claims document
+    in_review --> approved: Officer decision = approve
+    in_review --> rejected: Officer decision = reject
+    in_review --> needs_revision: Officer decision = request changes
 
-    error --> analyzing: Retry (Celery backoff)
-
-    ready --> approved: Officer decision = approve
-    ready --> rejected: Officer decision = reject
-    ready --> needs_changes: Officer decision = request changes
-
-    needs_changes --> pending_review: Advisor resubmits
+    needs_revision --> pending: Advisor resubmits new version
 
     approved --> [*]
     rejected --> [*]
 
-    note right of error
-        GET /documents/{id}/analysis
-        returns structured 503
-        while status = error
-    end note
-
-    note right of ready
-        Officer review UI only
-        unlocks once status = ready
+    note right of pending
+        AIAnalysis separately moves
+        pending -> ready or error.
+        Analysis errors do not change
+        the document status.
     end note
 ```
 
 ### Explanation
 
-- `pending_review` and `analyzing` are distinct: the former means "in queue, nothing running yet," the latter means "worker actively holds this job" — useful for distinguishing a stuck queue from a stuck worker in ops dashboards.
-- `error` is a first-class state, not an exception swallowed in logs — it's what lets the API return a deterministic `503` instead of hanging or 500ing, and it's what the retry/backoff policy targets.
-- `needs_changes` closes the loop back to `pending_review`, so the same state machine — not a separate "resubmission" flow — handles both first-time submissions and revisions.
+- `DocumentStatus` tracks review workflow (`pending`, `in_review`, `approved`, `rejected`, `needs_revision`); AI processing is tracked independently by `AnalysisStatus` (`pending`, `ready`, `error`).
+- Analysis errors are persisted with cause-specific `error_code`, `user_facing_error`, and internal technical detail. They do not automatically retry or alter the document's review status.
+- `needs_revision` closes the loop through a new document row linked by `previous_version_id` and `thread_root_id`.
 
 ---
 
@@ -285,12 +276,11 @@ stateDiagram-v2
 
 | Path | Owns |
 |---|---|
-| `frontend/` | React SPA — Advisor & Officer dashboards |
+| `frontend/` | Next.js App Router — Advisor, Officer, and Admin dashboards |
 | `backend/api/` | FastAPI routes, auth middleware, state machine |
 | `worker/` | Celery tasks, AI pipeline, and `analyze_document` entrypoint |
-| `pipeline/ingestion/` | Format-specific extractors |
-| `pipeline/privacy/` | Presidio config, custom regex recognizers, `pii_mappings` I/O |
-| `pipeline/embedding/` | Chunker, local encoder wrapper |
-| `pipeline/retrieval/` | `retrieve_rules.py`, `retrieve_disclosures.py`, `retrieve_precedents.py`, `eval_retrieval.py` |
-| `pipeline/generation/` | Prompt templates, LLM client, Pydantic response schema |
-| `db/migrations/` | Postgres + pgvector schema |
+| `worker/data_eng/` | Format-specific extractors, chunking, embeddings, rules/disclosure/precedent retrieval |
+| `worker/ai/` | Custom regex masking, Gemini/Groq client, Pydantic response schema |
+| `backend/app/core/storage.py` | MinIO/S3-compatible upload client |
+| `backend/alembic/` | PostgreSQL + pgvector schema migrations |
+| `backend/models/` | SQLAlchemy models, including `AIAnalysis` error metadata |

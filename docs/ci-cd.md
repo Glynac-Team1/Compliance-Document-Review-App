@@ -18,7 +18,8 @@ is intentionally left for a future CD workflow rather than being guessed here.
 The workflow uses no provider API key. Tests that cover missing-LLM-key degradation
 run with `LLM_API_KEY` empty. The PostgreSQL service uses disposable credentials and
 is destroyed with the runner after the job. CI-only values must not be reused for
-development or production.
+development or production. In a Compose deployment, the backend owns migrations;
+the worker waits for the backend healthcheck and then seeds the retrieval corpora.
 
 ## Developer workflow
 
@@ -53,7 +54,7 @@ python -m ruff check backend worker scripts
 python -m alembic upgrade head
 python -m worker.data_eng.seed_rules_corpus
 python -m worker.data_eng.seed_precedents_corpus
-python -m pytest backend/tests worker/ai worker/data_eng -v
+PYTHONPATH=backend python -m pytest backend/tests worker/ai worker/data_eng -v
 ```
 
 The same database and corpus setup can be provided by the repository's Compose
@@ -95,8 +96,8 @@ administrators too if the team’s operating model permits it.
 
 ## Secrets and future CD
 
-`.env` and other environment-specific files are ignored; `.env.example` contains
-placeholders only. Do not add provider keys to the repository or CI defaults. When a
+`.env` and other environment-specific files are ignored. Do not add provider keys
+to the repository or CI defaults. When a
 real deployment target exists, add a separate protected-environment CD workflow that
 uses GitHub Environment secrets, explicit deployment permissions, and a documented
 rollback path. The current CI workflow deliberately does not deploy from `main`.
