@@ -3,7 +3,7 @@ import uuid
 
 from models import AnalysisStatus
 from app.core.analysis_errors import AnalysisErrorCode, get_user_facing_message
-from worker.ai.gemini_assist import GeminiAssistEngine
+from worker.ai.gemini_assist import DEFAULT_GEMINI_MODEL, GeminiAssistEngine, _gemini_candidate_models
 from worker.celery_app import persist_analysis_failure
 
 
@@ -48,6 +48,10 @@ class TestAnalysisErrors(unittest.TestCase):
         self.assertTrue(result["degraded"])
         self.assertEqual(result["error_code"], AnalysisErrorCode.LLM_FAILED.value)
         self.assertEqual(result["flags"], [])
+
+    def test_gemini_default_model_is_current_and_configurable(self):
+        self.assertEqual(DEFAULT_GEMINI_MODEL, "gemini-3.6-flash")
+        self.assertEqual(_gemini_candidate_models(), ["gemini-3.6-flash"])
 
 
 if __name__ == "__main__":

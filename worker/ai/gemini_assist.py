@@ -32,6 +32,13 @@ from app.core.analysis_errors import AnalysisErrorCode, get_user_facing_message
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+
+
+def _gemini_candidate_models() -> list[str]:
+    configured_model = os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+    return list(dict.fromkeys([configured_model, DEFAULT_GEMINI_MODEL]))
+
 
 def _is_retryable_http_error(exc: BaseException) -> bool:
     """Check if exception is a retryable HTTP status (429 Rate Limit or 5xx Server Error)."""
@@ -184,11 +191,7 @@ class GeminiAssistEngine:
         if not self.gemini_api_key:
             raise ValueError("GEMINI_API_KEY / LLM_API_KEY is missing.")
 
-        candidate_models = list(dict.fromkeys([
-            os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
-            "gemini-2.0-flash",
-            "gemini-1.5-flash",
-        ]))
+        candidate_models = _gemini_candidate_models()
 
         last_error = None
         for model in candidate_models:
