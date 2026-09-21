@@ -277,7 +277,7 @@ export default function ReviewPanel({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {tab === 'AI Assist' && (
           <div className="flex flex-col gap-7 p-5 sm:p-6">
-            {(aiData.error_type === 'unsupported_for_ai' || aiData.manual_review_required || aiData.degraded) && (
+            {(aiData.error_code || aiData.error_type || aiData.manual_review_required || aiData.degraded) && (
               <div data-testid="degraded-state-banner" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="size-5 shrink-0 text-amber-600 mt-0.5" />
@@ -289,8 +289,8 @@ export default function ReviewPanel({
                     </h3>
                     <p className="mt-1 text-xs text-amber-800/90 dark:text-amber-300/90 leading-5">
                       {aiData.degraded
-                        ? 'AI Assist is running in degraded fallback mode (API rate-limited, key missing, or external service failure). Manual review is required for this document.'
-                        : 'This document cannot be parsed for automated compliance checks (e.g. scanned or image-only PDF with no extractable text). Automated screening was bypassed; please proceed with manual revision.'}
+                        ? 'AI Assist is running in degraded fallback mode. Manual review is required for this document.'
+                        : 'Automated screening was bypassed; please proceed with manual review.'}
                     </p>
                     <button
                       type="button"
@@ -333,8 +333,10 @@ export default function ReviewPanel({
                       ? 'Evaluating document against rules...'
                       : aiData.degraded
                       ? 'Automated rule checking unavailable due to degraded service. Officer manual review required.'
-                      : (aiData.error_type === 'unsupported_for_ai' || aiData.manual_review_required)
-                      ? 'Automated rule checking bypassed due to unsupported file format. Manual revision/review required.'
+                      : (aiData.error_code || aiData.error_type || aiData.manual_review_required)
+                      ? aiData.error_type === 'unsupported_for_ai'
+                        ? 'Automated rule checking bypassed due to unsupported file format. Manual revision/review required.'
+                        : 'Automated rule checking was bypassed. Manual revision/review required.'
                       : 'No flags detected.'}
                   </span>
                 </div>

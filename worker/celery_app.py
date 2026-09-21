@@ -17,12 +17,13 @@ from worker.data_eng.disclosure_check import find_missing_disclosures
 from worker.data_eng.extractors import TextExtractor, ExtractionError
 from worker.data_eng.precedent_search import retrieve_precedents
 from worker.data_eng.retrieval import retrieve_rules_for_document
+from app.core.analysis_errors import AnalysisErrorCode, get_user_facing_message
 
 logger = logging.getLogger(__name__)
 
 RETRIEVAL_MANUAL_REVIEW_SUMMARY = (
-    "Automated compliance analysis could not be completed because required "
-    "rule, disclosure, or precedent retrieval failed. Please proceed with manual review."
+    "The AI analysis could not be completed because the required compliance reference data "
+    "could not be retrieved. Please try again or proceed with manual review."
 )
 
 
@@ -42,6 +43,37 @@ def _safe_retrieval_reason(exc: BaseException) -> str:
     if cause is not None and type(cause) is not type(exc):
         names.append(type(cause).__name__)
     return ":".join(names)
+
+
+def _technical_error(exc: BaseException) -> str:
+    return f"{type(exc).__name__}: {exc}"
+
+
+def persist_analysis_failure(ai_record, doc, error_code, technical_error: str) -> dict:
+    code = AnalysisErrorCode(error_code)
+    user_message = get_user_facing_message(code)
+    payload = {
+        "summary": user_message,
+        "flags": [],
+        "precedents": [],
+        "degraded": True,
+        "error_code": code.value,
+        "error_type": code.value.lower(),
+        "user_facing_error": user_message,
+        "technical_error": technical_error,
+        "manual_review_required": True,
+    }
+    if ai_record is not None:
+        ai_record.status = AnalysisStatus.error
+        ai_record.summary = user_message
+        ai_record.error_message = technical_error
+        ai_record.error_code = code.value
+        ai_record.user_facing_error = user_message
+        ai_record.technical_error = technical_error
+        ai_record.model_name = None
+        ai_record.generated_at = datetime.utcnow()
+    doc.ai_analysis = payload
+    return payload
 
 
 async def retrieve_rag_context(db: AsyncSession, chunk_embeddings, masker):
@@ -96,6 +128,8 @@ def persist_retrieval_failure(ai_record, doc, retrieval_err: RetrievalError) -> 
         "precedents": [],
         "degraded": True,
         "error_type": "retrieval_failed",
+        "error_code": AnalysisErrorCode.RAG_RETRIEVAL_FAILED.value,
+        "user_facing_error": get_user_facing_message(AnalysisErrorCode.RAG_RETRIEVAL_FAILED),
         "failed_stage": retrieval_err.stage,
         "error_detail": retrieval_err.reason,
         "manual_review_required": True,
@@ -104,6 +138,9 @@ def persist_retrieval_failure(ai_record, doc, retrieval_err: RetrievalError) -> 
         ai_record.status = AnalysisStatus.error
         ai_record.summary = RETRIEVAL_MANUAL_REVIEW_SUMMARY
         ai_record.error_message = error_message
+        ai_record.error_code = AnalysisErrorCode.RAG_RETRIEVAL_FAILED.value
+        ai_record.user_facing_error = get_user_facing_message(AnalysisErrorCode.RAG_RETRIEVAL_FAILED)
+        ai_record.technical_error = error_message
         ai_record.model_name = None
         ai_record.generated_at = datetime.utcnow()
     doc.ai_analysis = payload
@@ -157,12 +194,28 @@ def analyze_document(document_id: str) -> dict:
                     await db.commit()
                     await db.refresh(ai_record)
 
-                # Download the file from MinIO storage
                 import tempfile
                 temp_file = os.path.join(tempfile.gettempdir(), doc.file_reference)
-                s3_client.download_file(settings.minio_bucket_name, doc.file_reference, temp_file)
 
                 try:
+                    # Download failures are kept separate from extraction failures.
+                    try:
+                        s3_client.download_file(settings.minio_bucket_name, doc.file_reference, temp_file)
+                    except Exception as exc:
+                        logger.error(
+                            "Document download failed: document_id=%s analysis_id=%s file_type=%s exception_type=%s",
+                            document_id, ai_record.id, doc.file_type, type(exc).__name__,
+                        )
+                        persist_analysis_failure(
+                            ai_record, doc, AnalysisErrorCode.STORAGE_DOWNLOAD_FAILED, _technical_error(exc)
+                        )
+                        await db.commit()
+                        return {
+                            "document_id": document_id,
+                            "status": "error",
+                            "error_code": AnalysisErrorCode.STORAGE_DOWNLOAD_FAILED.value,
+                        }
+
                     # 1. Text extraction from local file buffer
                     text = TextExtractor.extract(temp_file)
 
@@ -190,7 +243,22 @@ def analyze_document(document_id: str) -> dict:
                     from worker.data_eng.chunking import chunk_document
                     from worker.data_eng.embeddings import embed_document_chunks
 
-                    chunks = embed_document_chunks(chunk_document(masked_text))
+                    try:
+                        chunks = embed_document_chunks(chunk_document(masked_text))
+                    except Exception as exc:
+                        logger.error(
+                            "Embedding failed: document_id=%s analysis_id=%s file_type=%s exception_type=%s",
+                            document_id, ai_record.id, doc.file_type, type(exc).__name__,
+                        )
+                        persist_analysis_failure(
+                            ai_record, doc, AnalysisErrorCode.EMBEDDING_FAILED, _technical_error(exc)
+                        )
+                        await db.commit()
+                        return {
+                            "document_id": document_id,
+                            "status": "error",
+                            "error_code": AnalysisErrorCode.EMBEDDING_FAILED.value,
+                        }
                     chunk_embeddings = [chunk.embedding for chunk in chunks if chunk.embedding is not None]
                     try:
                         rules_context, missing_disclosures, precedents = await retrieve_rag_context(
@@ -297,43 +365,52 @@ def analyze_document(document_id: str) -> dict:
                     ai_record.summary = analysis.get("summary")
                     ai_record.model_name = analysis.get("model")
                     ai_record.error_message = (
-                        analysis.get("summary") if analysis.get("degraded") else None
+                        analysis.get("technical_error") if analysis.get("degraded") else None
+                    )
+                    ai_record.error_code = analysis.get("error_code") if analysis.get("degraded") else None
+                    ai_record.user_facing_error = (
+                        analysis.get("user_facing_error") if analysis.get("degraded") else None
+                    )
+                    ai_record.technical_error = (
+                        analysis.get("technical_error") if analysis.get("degraded") else None
                     )
                     ai_record.status = AnalysisStatus.error if analysis.get("degraded") else AnalysisStatus.ready
                     ai_record.generated_at = datetime.utcnow()
                     await db.commit()
 
                 except ExtractionError as e:
-                    print(f"Extraction error for document {document_id}: {e}")
-                    err_msg = (
-                        "This file format or document structure is not supported for automated AI analysis "
-                        "(e.g., scanned/image-only PDF or empty file). Please proceed with manual revision."
+                    logger.error(
+                        "Document extraction failed: document_id=%s analysis_id=%s file_type=%s "
+                        "error_code=%s technical_error=%s",
+                        document_id, ai_record.id, doc.file_type, e.code.value, e.technical_message,
                     )
-                    if ai_record:
-                        ai_record.status = AnalysisStatus.error
-                        ai_record.summary = err_msg
-                    doc.ai_analysis = {
-                        "summary": err_msg,
-                        "flags": [],
-                        "error_type": "unsupported_for_ai",
-                        "error_detail": str(e),
-                    }
+                    technical_source = e.__cause__
+                    technical_error = (
+                        _technical_error(technical_source)
+                        if technical_source is not None
+                        else e.technical_message or _technical_error(e)
+                    )
+                    persist_analysis_failure(ai_record, doc, e.code, technical_error)
                     await db.commit()
-                    return {"document_id": document_id, "status": "error", "error_type": "unsupported_for_ai", "error": str(e)}
+                    return {
+                        "document_id": document_id,
+                        "status": "error",
+                        "error_code": e.code.value,
+                    }
                 except Exception as e:
-                    print(f"Error processing document: {e}")
-                    err_msg = "AI analysis is currently unavailable for this submission. Please proceed with manual revision."
-                    if ai_record:
-                        ai_record.status = AnalysisStatus.error
-                        ai_record.summary = err_msg
-                    doc.ai_analysis = {
-                        "summary": err_msg,
-                        "flags": [],
-                        "error_type": "ai_unavailable",
-                        "error_detail": str(e),
-                    }
+                    logger.exception(
+                        "Unexpected analysis failure: document_id=%s analysis_id=%s file_type=%s",
+                        document_id, ai_record.id, doc.file_type,
+                    )
+                    persist_analysis_failure(
+                        ai_record, doc, AnalysisErrorCode.UNKNOWN_ANALYSIS_ERROR, _technical_error(e)
+                    )
                     await db.commit()
-                    return {"document_id": document_id, "status": "error", "error_type": "ai_unavailable", "error": str(e)}
+                    return {
+                        "document_id": document_id,
+                        "status": "error",
+                        "error_code": AnalysisErrorCode.UNKNOWN_ANALYSIS_ERROR.value,
+                    }
                 finally:
                     # Cleanup the temp file
                     if os.path.exists(temp_file):

@@ -22,7 +22,9 @@ export interface AIAnalysis {
   degraded?: boolean
   flags?: ComplianceFlag[]
   error_type?: string
+  error_code?: string
   error_detail?: string
+  user_facing_error?: string
   manual_review_required?: boolean
 }
 

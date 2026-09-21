@@ -2,11 +2,13 @@ import os
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import MagicMock, patch
 
 import openpyxl
 from fpdf import FPDF
 
 from worker.data_eng.extractors import TextExtractor, ExtractionError
+from app.core.analysis_errors import AnalysisErrorCode
 
 _DOCX_DOCUMENT_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
@@ -22,9 +24,10 @@ def _make_docx(path: str, text: str) -> None:
         z.writestr("word/document.xml", _DOCX_DOCUMENT_XML.format(text=text))
 
 
-def _make_xlsx(path: str, cell_value: str) -> None:
+def _make_xlsx(path: str, cell_value: str | None) -> None:
     wb = openpyxl.Workbook()
-    wb.active["A1"] = cell_value
+    if cell_value is not None:
+        wb.active["A1"] = cell_value
     wb.save(path)
 
 
@@ -33,6 +36,15 @@ def _make_pdf(path: str, text: str) -> None:
     pdf.add_page()
     pdf.set_font("Helvetica", size=12)
     pdf.multi_cell(0, 10, text)
+    pdf.output(path)
+
+
+def _make_multipage_pdf(path: str) -> None:
+    pdf = FPDF()
+    for text in ("Page one compliance text", "Page two disclosure text"):
+        pdf.add_page()
+        pdf.set_font("Helvetica", size=12)
+        pdf.multi_cell(0, 10, text)
     pdf.output(path)
 
 
@@ -72,6 +84,42 @@ class TestTextExtractor(unittest.TestCase):
         _make_pdf(path, "Past performance is no guarantee of future results.")
         self.assertIn("Past performance", TextExtractor.extract(path))
 
+    def test_multipage_pdf_extraction_preserves_both_pages(self):
+        path = self._tmp_path(".pdf")
+        _make_multipage_pdf(path)
+        text = TextExtractor.extract(path)
+        self.assertIn("Page one compliance text", text)
+        self.assertIn("Page two disclosure text", text)
+
+    def test_scanned_pdf_is_classified_as_no_text(self):
+        path = self._tmp_path(".pdf")
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.output(path)
+        with self.assertRaises(ExtractionError) as context:
+            TextExtractor.extract(path)
+        self.assertEqual(context.exception.code, AnalysisErrorCode.PDF_NO_TEXT)
+        self.assertIn("image-only", context.exception.user_message)
+
+    def test_corrupted_pdf_is_classified(self):
+        path = self._tmp_path(".pdf")
+        with open(path, "wb") as file:
+            file.write(b"not a pdf")
+        with self.assertRaises(ExtractionError) as context:
+            TextExtractor.extract(path)
+        self.assertEqual(context.exception.code, AnalysisErrorCode.PDF_CORRUPTED)
+
+    def test_pdf_page_failure_fails_closed(self):
+        path = self._tmp_path(".pdf")
+        _make_pdf(path, "Readable page")
+        with patch("worker.data_eng.extractors.pdfplumber.open") as open_pdf:
+            page = MagicMock()
+            page.extract_text.side_effect = RuntimeError("layout failure")
+            open_pdf.return_value.pages = [page]
+            with self.assertRaises(ExtractionError) as context:
+                TextExtractor.extract(path)
+        self.assertEqual(context.exception.code, AnalysisErrorCode.PDF_PARTIAL_EXTRACTION)
+
     def test_unsupported_extension_raises(self):
         path = self._tmp_path(".exe")
         with open(path, "wb") as f:
@@ -91,6 +139,28 @@ class TestTextExtractor(unittest.TestCase):
             f.write(b"not actually a zip file")
         with self.assertRaises(ExtractionError):
             TextExtractor.extract(path)
+
+    def test_empty_docx_is_classified(self):
+        path = self._tmp_path(".docx")
+        _make_docx(path, "")
+        with self.assertRaises(ExtractionError) as context:
+            TextExtractor.extract(path)
+        self.assertEqual(context.exception.code, AnalysisErrorCode.DOCX_EMPTY)
+
+    def test_empty_xlsx_is_classified(self):
+        path = self._tmp_path(".xlsx")
+        _make_xlsx(path, None)
+        with self.assertRaises(ExtractionError) as context:
+            TextExtractor.extract(path)
+        self.assertEqual(context.exception.code, AnalysisErrorCode.XLSX_EMPTY)
+
+    def test_corrupted_xlsx_is_classified(self):
+        path = self._tmp_path(".xlsx")
+        with open(path, "wb") as file:
+            file.write(b"not an xlsx")
+        with self.assertRaises(ExtractionError) as context:
+            TextExtractor.extract(path)
+        self.assertEqual(context.exception.code, AnalysisErrorCode.XLSX_CORRUPTED)
 
 
 if __name__ == "__main__":
