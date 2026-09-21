@@ -1,6 +1,6 @@
 # Compliance Document Review App
 
-A multi-tenant institutional web application that replaces ad-hoc financial compliance review with a shared, tenant-isolated queue, immutable audit trails, and an AI assist panel that flags regulatory concerns (missing disclosures, misleading claims, fee schedule discrepancies, missing signatures) without ever automating the decision. The human compliance officer always makes the final call.
+A multi-tenant institutional web application that replaces ad-hoc financial compliance review with a shared, tenant-isolated queue, recorded audit events, and an AI assist panel that flags regulatory concerns (missing disclosures, misleading claims, fee schedule discrepancies, missing signatures) without ever automating the decision. The human compliance officer always makes the final call.
 
 Built across five tracks: Backend, Frontend, AI, Data Engineering, DevOps/Platform.
 
@@ -12,10 +12,10 @@ See also: [`docs/technical-implementation-plan.md`](./docs/technical-implementat
 
 | Team Member | Track | Specialization & Key Responsibilities |
 |---|---|---|
-| **Basamsetti Venkata Vamsi** | **AI Engineering** | PII masking pipelines (Presidio + custom regex), prompt engineering, structured JSON schema enforcement, and third-party LLM integrations (Gemini / Groq). |
+| **Basamsetti Venkata Vamsi** | **AI Engineering** | Ordered custom-regex PII masking, prompt engineering, structured JSON schema enforcement, and third-party LLM integrations (Gemini / Groq). |
 | **Kashish Agarwal** | **Backend Engineering** | FastAPI REST endpoints, multi-tenant workspace architecture, session/role auth enforcement (server-side 403 gates), document lifecycle state machine, and Celery/Redis background task orchestration. |
-| **Daniel Ojo** | **Frontend Engineering** | Next.js 16 (App Router, Turbopack) + TypeScript SPA, split-pane review interface, Server-Sent Events (SSE) live sync, two-stage document upload modal with toast validation, and dedicated institutional Admin Console. |
-| **Jemarco Briz** | **Data Engineering** | Format-aware text extraction (PDF/DOCX/XLSX), local vector embeddings (`BAAI/bge-small-en-v1.5`), `pgvector` HNSW index architecture, and the 3-phase retrieval engine. |
+| **Daniel Ojo** | **Frontend Engineering** | Next.js 16 App Router + TypeScript SPA, split-pane review interface, Server-Sent Events (SSE) live sync, two-stage document upload modal with toast validation, and dedicated institutional Admin Console. |
+| **Jemarco Briz** | **Data Engineering** | Format-aware text extraction (PDF/DOCX/XLSX), local vector embeddings (`BAAI/bge-base-en-v1.5`), `pgvector` HNSW index architecture, and the 3-phase retrieval engine. |
 | **Cross-Track / Shared** | **DevOps & Platform** | Docker Compose orchestration, automated Alembic migrations & seeding, environment controls, and GitHub Actions CI pipelines. |
 
 ---
@@ -27,8 +27,8 @@ See also: [`docs/technical-implementation-plan.md`](./docs/technical-implementat
 - **Single Administrator Architecture**: Guaranteed by PostgreSQL database-level constraints (`uq_workspace_single_admin` partial unique index and `chk_admin_must_be_officer` check constraint).
 - **Two-Stage Document Upload with Toast Validation**: Advisors receive upfront guidance on accepted formats (PDF, DOCX, XLSX) and 10 MB limits, immediate non-blocking toast validation on file selection, and a verified pre-submission confirmation screen.
 - **Review Concurrency Locking**: Compliance officers acquire atomic claims (`POST /documents/{id}/claim`) on queue items, preventing race conditions or duplicate reviews across officers.
-- **PII-Masked AI Assist**: All document text is masked using Microsoft Presidio and custom regex **before** sending to any external LLM provider (Google Gemini or Groq).
-- **Append-Only Audit Trail**: Every status transition, claim, officer decision, and revision resubmission is permanently recorded with user identity and timestamp.
+- **PII-Masked AI Assist**: All document text is masked by the worker's ordered custom-regex masker **before** sending to any external LLM provider (Google Gemini or Groq). Reverse mappings remain server-side.
+- **Audit Trail**: Status transitions, claims, officer decisions, and revision resubmissions are recorded with user identity and timestamp.
 
 ---
 
@@ -56,21 +56,21 @@ flowchart TD
     subgraph Processing["3. Async Ingestion & Masking Pipeline"]
         DocSubmit --> RedisQueue["Redis Task Queue"]
         RedisQueue --> CeleryWorker["Celery Worker"]
-        CeleryWorker --> Extract["Text Extraction<br/>(pdfplumber / docx / openpyxl)"]
-        Extract --> Mask["PII Masker (Presidio + Regex)<br/>Masks Client Info Before Any LLM Call"]
-        Mask --> Embed["Vector Embeddings (Local bge-small)"]
+        CeleryWorker --> Extract["Text Extraction<br/>(pdfplumber / XML ZIP / openpyxl)"]
+        Extract --> Mask["PII Masker (Ordered Regex)<br/>Masks Client Info Before Any LLM Call"]
+        Mask --> Embed["Vector Embeddings (Local bge-base)"]
         Embed --> PGVector["pgvector Similarity Search<br/>(Retrieves Applicable Policy Rules)"]
         PGVector --> LLM["LLM Analysis (Gemini / Groq)<br/>(Generates Regulatory Flags)"]
     end
 
     subgraph OfficerFlow["4. Compliance Officer Workflow"]
         MemberJoin -.->|Officer| OffSpace["Compliance Workspace (/compliance-officer)"]
-        OffSpace --> SSEStream["Live SSE Sync<br/>(/notifications/stream & /documents/stream)"]
+        OffSpace --> SSEStream["Live SSE Sync<br/>(/notifications/stream)"]
         SSEStream --> Queue["Filterable Review Queue<br/>(Unreviewed / Claimed / Reviewed)"]
         Queue --> ClaimDoc["Claim Document Lock<br/>POST /documents/{id}/claim"]
         ClaimDoc --> SplitPane["Split-Pane Review Interface<br/>(Original Document Preview + AI Flags Panel)"]
         SplitPane --> Decision["Officer Final Decision<br/>Approve · Reject · Needs Revision"]
-        Decision --> AuditLog["Append-Only Audit Trail<br/>(Timestamp, Officer ID, Comment)"]
+        Decision --> AuditLog["Audit Events<br/>(Timestamp, Officer ID, Comment)"]
         Decision -.->|If Needs Revision| AdvSpace
     end
 ```
@@ -98,15 +98,15 @@ flowchart TD
   - **Upfront Format Guidance**: Prior to file selection, advisors see explicit guidance for supported formats: **PDF (`.pdf`)**, **Word (`.docx`)**, and **Excel (`.xlsx`)**, along with a **10 MB maximum file size cap** and a tenant-encryption badge.
   - **Immediate Client-Side Toast Validation**: If an unsupported extension or a file exceeding 10 MB is selected or dropped, the app immediately fires a non-intrusive `toast.error` notification and resets the file input—preventing invalid files from staging.
   - **Confirmation Screen**: Staged files display a confirmation card showing the file icon, file name, formatted size (e.g. `2.45 MB`), format badge, and a verified readiness checkmark before submission.
-- **Audit & Revision Resubmissions**: If an officer marks a document as **Needs Revision**, the advisor can resubmit an updated file. The new version is linked to the previous document, maintaining a continuous, immutable audit thread.
+- **Audit & Revision Resubmissions**: If an officer marks a document as **Needs Revision**, the advisor can resubmit an updated file. The new version is linked to the previous document, maintaining a continuous audit thread.
 
 ### 4. Compliance Officer Review & Concurrency Control
 - **Shared, Real-Time Review Queue**: Officers monitor an active review queue updated in real time via Server-Sent Events (SSE).
 - **Concurrency Locking (Claims)**: Before beginning a review, an officer claims the document (`POST /documents/{id}/claim`). This places an atomic claim lock on the record, preventing multiple compliance officers from reviewing or deciding the same submission concurrently.
 - **Split-Pane Review Interface**:
   - **Left Pane**: Document viewer with metadata (advisor name, submission timestamp, document version).
-  - **Right Pane**: PII-masked AI Assist Panel detailing automated regulatory checks, flagged issues, policy rule citations, and confidence scores.
-  - **Degraded AI Handling**: If AI analysis is pending or unavailable, officers can still complete manual reviews without obstruction.
+  - **Right Pane**: AI Assist Panel detailing automated regulatory checks, flagged issues, and policy rule citations.
+  - **Degraded AI Handling**: Extraction, storage, embedding, retrieval, and LLM failures are persisted with structured error codes and safe user messages. Officers can still complete manual reviews.
 - **Human-in-the-Loop Decisions**: The officer records a binding decision (**Approve**, **Reject**, or **Needs Revision**) with mandatory audit reasoning.
 
 ### 5. Dedicated Institutional Admin Console (`/admin`)
@@ -121,20 +121,20 @@ flowchart TD
 
 | Layer | Stack |
 |---|---|
-| Frontend | Next.js 16 (App Router, Turbopack) + TypeScript, Tailwind CSS v4, Lucide React, Vitest, Server-Sent Events (SSE) |
+| Frontend | Next.js 16 App Router + TypeScript, Tailwind CSS v4, Lucide React, Vitest, Server-Sent Events (SSE) |
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 (async), Alembic, Celery + Redis |
 | Database | PostgreSQL 16 + `pgvector` (HNSW index) |
 | Storage | MinIO (S3-compatible bucket storage for raw documents) |
 | AI | Gemini API (Google AI Studio free tier) or Groq — no production Anthropic credits |
-| PII Masking | Microsoft Presidio + custom regex recognizers |
-| Embeddings | Local `sentence-transformers` (`BAAI/bge-small-en-v1.5`) — never sent to a third party |
+| PII Masking | Ordered custom regex masker with server-side reverse mappings |
+| Embeddings | Local `sentence-transformers` (`BAAI/bge-base-en-v1.5`, 768 dimensions) — never sent to a third party |
 | Infra | Docker Compose v2, GitHub Actions CI |
 
 ### Frontend & Real-Time Architecture Highlights
 
-- **Next.js 16 (Turbopack & App Router)**: Component-driven architecture built with strict TypeScript enforcement (`tsc --noEmit`), eliminating build error suppressions.
-- **Server-Sent Events (SSE) Live Sync**: Native real-time streaming via `useLiveSync` connecting to `/notifications/stream` and `/documents/stream`, automatically refreshing queues and review states without continuous client polling.
-- **Resilient AI Degradation**: Explicit UI handling for missing, partial, or failed AI analyses (`ai_status: "failed"` / `"pending"`), allowing compliance officers to proceed with manual reviews uninterrupted.
+- **Next.js 16 App Router**: Component-driven architecture built with strict TypeScript enforcement (`tsc --noEmit`).
+- **Server-Sent Events (SSE) Live Sync**: Native real-time streaming via `useLiveSync` connecting to `/notifications/stream`, refreshing notifications and queue/review state events with automatic reconnects.
+- **Resilient AI Degradation**: Explicit UI handling for pending and failed analyses. API responses expose `error_code`, `user_facing_error`, and `manual_review_required`, allowing officers to proceed with manual reviews uninterrupted.
 - **Institutional Toast System**: Non-blocking, accessible visual feedback mounted globally at root layout (`frontend/components/Toast.tsx`), replacing default browser alerts with professional status messaging.
 - **Internal Routing Protection**: Endpoints and slugs (e.g. `/{role}/{slug}`) are encapsulated within user navigation components, preventing exposure of internal routing paths.
 - **Testing & Verification**: Vitest and `@testing-library/react` test suites verifying component resilience and degraded state handling (`frontend/__tests__/degraded-state.test.tsx`), accompanied by ESLint flat config.
@@ -188,14 +188,10 @@ cd Compliance-Document-Review-App
 
 ### 2. Create the local environment file
 
-`.env.example` is the shared configuration template. Copy it to `.env`; never commit
-`.env` or put real API keys in source files.
+Create a local `.env` file; never commit it or put real API keys in source files.
+The Compose file provides development defaults for database, Redis, and MinIO.
 
-```bash
-cp .env.example .env
-```
-
-Open `.env` and set at least these values:
+Set at least these values in `.env`:
 
 ```dotenv
 LLM_API_KEY=your-provider-api-key
@@ -232,8 +228,10 @@ docker compose up --build -d
 docker compose logs -f backend
 ```
 
-The backend waits for healthy Postgres and Redis services. Its entrypoint then runs
-`alembic upgrade head` before starting Uvicorn.
+The backend waits for healthy Postgres, Redis, and MinIO services. Its entrypoint runs
+`alembic upgrade head` before starting Uvicorn. The worker waits for the backend
+healthcheck, then seeds rules and precedents before starting Celery; it does not run
+migrations.
 
 ### 4. Application Endpoints & Ports
 
@@ -267,23 +265,34 @@ Expected response:
 ### 5. Running Verification & Automated Tests
 
 #### Backend Automated Test Suite
-Run the full test suite (covering multi-tenant admin security, role boundaries, claim concurrency, invite-first flows, and SSE notifications) directly inside the Docker container:
+Run the backend test suite (covering multi-tenant admin security, role boundaries,
+claim concurrency, invite-first flows, and notifications) inside the Docker container:
 
 ```bash
-docker exec -e PYTHONPATH=/app compliance-document-review-app-backend-1 pytest tests/
+docker compose exec -T backend sh -lc 'PYTHONPATH=/app pytest -q tests'
 ```
 
 #### Frontend TypeScript Verification & Tests
 Verify strict TypeScript compilation with zero errors across all components:
 
 ```bash
-docker exec compliance-document-review-app-frontend-1 npx tsc --noEmit
+docker compose exec -T frontend npx tsc --noEmit
 ```
 
 Run frontend unit and component tests:
 
 ```bash
-docker exec -it compliance-document-review-app-frontend-1 npm test
+docker compose exec -T frontend npm test -- --run
+
+#### Worker extraction and AI tests
+
+```bash
+docker compose exec -T worker pytest -q worker/data_eng worker/ai
+```
+
+These tests cover format-specific extraction, scanned/corrupted/empty files,
+fail-closed PDF handling, privacy masking, retrieval failures, structured error
+persistence, and LLM fallback behavior.
 ```
 
 ---
@@ -295,11 +304,12 @@ Database schemas and constraints are managed through Alembic. When the backend c
 Key architectural migrations:
 - `c7a8b9d0e1f2_add_workspaces_and_invitations.py`: Establishes the multi-tenant schema with `workspaces` and `invitations` tables, linking documents, users, and audit logs by `workspace_id`.
 - `f1a2b3c4d5e6_enforce_single_workspace_admin.py`: Enforces single administrator integrity via `uq_workspace_single_admin` partial unique index and role invariants (`chk_admin_must_be_officer`).
+- `9e7f6a1b2c3d_add_structured_analysis_errors.py`: Adds persisted `error_code`, `user_facing_error`, and `technical_error` fields to `AIAnalysis`.
 
 To manually run migrations inside the backend container:
 
 ```bash
-docker exec compliance-document-review-app-backend-1 alembic upgrade head
+docker compose exec -T backend alembic upgrade head
 ```
 
 ---
@@ -349,5 +359,5 @@ docker compose up --build backend worker frontend
 ### Implementation Status
 
 The application provides an enterprise-ready, tenant-isolated compliance review platform:
-- **Backend & Worker**: FastAPI REST API, Celery + Redis async worker pipeline, Presidio PII masking, local vector embeddings (`bge-small-en-v1.5`), `pgvector` retrieval engine, Server-Sent Events (SSE) notification streaming, and automated Alembic database migrations.
-- **Frontend**: Next.js 16 App Router interface with Turbopack, Tailwind CSS v4, split-pane advisor/compliance officer workflows, real-time live synchronization via SSE, institutional toast alerts, two-stage advisor upload modal with client-side toast validation, and dedicated institutional Admin Console.
+- **Backend & Worker**: FastAPI REST API, Celery + Redis async worker pipeline, custom-regex PII masking, local vector embeddings (`bge-base-en-v1.5`), `pgvector` retrieval engine, structured failure handling, Server-Sent Events (SSE) notification streaming, and backend-owned Alembic migrations.
+- **Frontend**: Next.js 16 App Router interface, Tailwind CSS v4, split-pane advisor/compliance officer workflows, real-time live synchronization via SSE, institutional toast alerts, two-stage advisor upload modal with client-side toast validation, and dedicated institutional Admin Console.

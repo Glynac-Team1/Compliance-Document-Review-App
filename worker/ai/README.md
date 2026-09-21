@@ -8,7 +8,7 @@
 
 ## 1. Architecture Overview
 
-The AI feature runs against free-tier third-party LLM providers (**Gemini 1.5/2.0 Flash** via Google AI Studio and **Groq LLaMA-3.3-70B** as automatic fallback). Per the project privacy wall requirement, **raw client data never leaves the application perimeter**.
+The AI feature runs against third-party LLM providers (**Gemini `gemini-3.6-flash`** via Google AI Studio and **Groq `llama-3.3-70b-versatile`** when configured). `GEMINI_MODEL` can override the Gemini default. Per the project privacy wall requirement, **raw client data never leaves the application perimeter**.
 
 ```
   Uploaded Document Text (Raw)
@@ -21,7 +21,7 @@ The AI feature runs against free-tier third-party LLM providers (**Gemini 1.5/2.
                │
                ▼  (Zero raw PII leaves perimeter)
    ┌───────────────────────┐
-   │  Outbound AI Payload  │ ───► Gemini 1.5 Flash API (Primary)
+  │  Outbound AI Payload  │ ───► Gemini 3.6 Flash API (Primary)
    │ (Masked Text + Rules) │      └── Failover: Groq LLaMA-3.3-70B
    └───────────────────────┘
                │
@@ -74,12 +74,12 @@ Per the project evaluation criteria, the masker is intentionally focused and doc
 
 ## 4. Multi-Provider Assist Engine (`gemini_assist.py`)
 
-- **Primary Provider:** Google AI Studio Gemini (`gemini-1.5-flash` / `gemini-2.0-flash`).
-- **Failover Provider:** Groq (`llama-3.3-70b-versatile` via OpenAI-compatible endpoint).
+- **Primary Provider:** Google AI Studio Gemini (`gemini-3.6-flash` by default; `GEMINI_MODEL` override supported).
+- **Alternative Provider:** Groq (`llama-3.3-70b-versatile` via OpenAI-compatible endpoint) when `LLM_PROVIDER=groq` and its key is available.
 - **Missing-Disclosure Detection by Absence:** Evaluates whether mandatory disclaimers (*"Past performance is no guarantee of future results"*, *"Loss of principal risk"*, fee schedules) are absent when securities/performance are discussed, producing `[MISSING MANDATORY DISCLOSURE]` flags.
 - **Strict Pydantic Schema Validation:** Validates output against `AIAnalysisResult` and `ComplianceFlag` models (`passage`, `matched_rule_id`, `severity` [HIGH/MEDIUM/LOW], `explanation`).
 - **Zero AI Verdicts:** The AI assistant only provides orientation flags; it **never** sets or pre-fills the final review status.
-- **Graceful Degradation:** When `LLM_API_KEY` is missing or rate limits are exceeded, the engine returns a clean degraded status banner rather than crashing the review queue.
+- **Structured failure handling:** Missing keys, provider failures, invalid responses, and exhausted retries return a degraded result with `LLM_FAILED`; the worker persists the safe user message and technical error separately.
 
 ---
 
@@ -94,9 +94,9 @@ Run the automated inspection tool:
 python scripts/inspect_outbound_payload.py fixtures/sample_docs/04_high_pii_client_agreement.txt
 ```
 
-The worker container runs Alembic migrations and idempotent rules and synthetic
-precedent seeding before Celery starts. No manual corpus-seeding command is
-required for a fresh deployment.
+The backend container owns Alembic migrations. The worker waits for the healthy
+backend, then runs idempotent rules and synthetic precedent seeding before Celery
+starts. The worker does not run migrations.
 
 Disclosure thresholds can be evaluated with labeled examples using
 `worker.data_eng.evaluate_disclosure_threshold`. F1 is used to balance missed
