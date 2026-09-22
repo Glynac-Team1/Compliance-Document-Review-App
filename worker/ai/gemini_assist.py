@@ -515,13 +515,20 @@ class GeminiAssistEngine:
                 last_error = failure
                 if index == 0 and len(providers) > 1 and failure.retryable:
                     logger.warning(
-                        "Primary LLM provider failed; provider=%s category=%s retryable=%s",
-                        provider, failure.category.value, failure.retryable,
+                        "Primary LLM provider failed; provider=%s model=%s category=%s status=%s fallback=secondary",
+                        provider,
+                        failure.model or "unknown",
+                        failure.category.value,
+                        failure.status_code or "none",
                     )
                 else:
                     logger.error(
-                        "LLM analysis failed: provider=%s category=%s retryable=%s",
-                        provider, failure.category.value, failure.retryable,
+                        "LLM analysis failed: provider=%s model=%s category=%s status=%s retryable=%s",
+                        provider,
+                        failure.model or "unknown",
+                        failure.category.value,
+                        failure.status_code or "none",
+                        failure.retryable,
                     )
                 if not failure.retryable:
                     break

@@ -93,12 +93,22 @@ def _safe_retrieval_reason(exc: BaseException) -> str:
 
 
 def _technical_error(exc: BaseException) -> str:
-    return f"{type(exc).__name__}: {exc}"
+    """Return a safe technical identifier without exception message contents."""
+    return type(exc).__name__
 
 
 def _analysis_retry_countdown(retry_number: int) -> int:
     upper_bound = ANALYSIS_TASK_RETRY_BASE_SECONDS * (2 ** retry_number)
     return random.randint(ANALYSIS_TASK_RETRY_BASE_SECONDS, upper_bound)
+
+
+def _safe_error_detail(exc: BaseException) -> str:
+    """Preserve stable error identity without storing provider or document text."""
+    cause = exc.__cause__ or exc.__context__
+    names = [type(exc).__name__]
+    if cause is not None and type(cause) is not type(exc):
+        names.append(type(cause).__name__)
+    return ":".join(names)
 
 
 def persist_analysis_failure(ai_record, doc, error_code, technical_error: str) -> dict:
@@ -273,7 +283,7 @@ def analyze_document(self, document_id: str) -> dict:
                         s3_client.download_file(settings.minio_bucket_name, doc.file_reference, temp_file)
                     except Exception as exc:
                         logger.error(
-                            "Document download failed: document_id=%s analysis_id=%s file_type=%s exception_type=%s",
+                            "Document download failed: stage=storage document_id=%s analysis_id=%s file_type=%s exception_type=%s",
                             document_id, ai_record.id, doc.file_type, type(exc).__name__,
                         )
                         persist_analysis_failure(
@@ -317,7 +327,7 @@ def analyze_document(self, document_id: str) -> dict:
                         chunks = embed_document_chunks(chunk_document(masked_text))
                     except Exception as exc:
                         logger.error(
-                            "Embedding failed: document_id=%s analysis_id=%s file_type=%s exception_type=%s",
+                            "Embedding failed: stage=embedding document_id=%s analysis_id=%s file_type=%s exception_type=%s",
                             document_id, ai_record.id, doc.file_type, type(exc).__name__,
                         )
                         persist_analysis_failure(
@@ -469,9 +479,9 @@ def analyze_document(self, document_id: str) -> dict:
                     )
                     technical_source = e.__cause__
                     technical_error = (
-                        _technical_error(technical_source)
+                        _safe_error_detail(technical_source)
                         if technical_source is not None
-                        else e.technical_message or _technical_error(e)
+                        else _safe_error_detail(e)
                     )
                     persist_analysis_failure(ai_record, doc, e.code, technical_error)
                     await db.commit()
@@ -482,8 +492,9 @@ def analyze_document(self, document_id: str) -> dict:
                     }
                 except Exception as e:
                     logger.exception(
-                        "Unexpected analysis failure: document_id=%s analysis_id=%s file_type=%s",
+                        "Unexpected analysis failure: stage=analysis document_id=%s analysis_id=%s file_type=%s error_type=%s",
                         document_id, ai_record.id, doc.file_type,
+                        type(e).__name__,
                     )
                     persist_analysis_failure(
                         ai_record, doc, AnalysisErrorCode.UNKNOWN_ANALYSIS_ERROR, _technical_error(e)

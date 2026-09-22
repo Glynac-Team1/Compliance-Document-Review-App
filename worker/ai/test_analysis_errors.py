@@ -25,6 +25,7 @@ from worker.celery_app import (
     _analysis_retry_countdown,
     analyze_document,
     claim_analysis,
+    _technical_error,
     persist_analysis_failure,
 )
 
@@ -134,6 +135,12 @@ class TestAnalysisErrors(unittest.TestCase):
                 countdown,
                 ANALYSIS_TASK_RETRY_BASE_SECONDS * (2 ** retry_number),
             )
+
+    def test_technical_error_does_not_store_exception_message(self):
+        error = RuntimeError("client Jane Smith SSN 123-45-6789 provider response")
+        self.assertEqual(_technical_error(error), "RuntimeError")
+        self.assertNotIn("Jane Smith", _technical_error(error))
+        self.assertNotIn("123-45-6789", _technical_error(error))
 
     def test_analysis_claim_can_be_acquired_and_renewed_by_same_task(self):
         record = MagicMock(
