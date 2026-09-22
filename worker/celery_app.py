@@ -3,7 +3,7 @@ import logging
 import os
 import random
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from celery import Celery
 from sqlalchemy import select, delete
 from sqlalchemy.orm import sessionmaker
@@ -38,10 +38,40 @@ def _positive_int_env(name: str, default: int, minimum: int = 1) -> int:
 
 ANALYSIS_TASK_MAX_RETRIES = _positive_int_env("ANALYSIS_TASK_MAX_RETRIES", 2, minimum=0)
 ANALYSIS_TASK_RETRY_BASE_SECONDS = _positive_int_env("ANALYSIS_TASK_RETRY_BASE_SECONDS", 30)
+ANALYSIS_CLAIM_LEASE_SECONDS = _positive_int_env("ANALYSIS_CLAIM_LEASE_SECONDS", 900)
 
 
 class RetryableAnalysisError(Exception):
     """Signals a transient analysis failure that Celery should retry."""
+
+
+async def claim_analysis(db: AsyncSession, ai_record, claim_token: str) -> bool:
+    """Atomically claim a pending analysis or renew the current task's lease."""
+    locked_record = await db.scalar(
+        select(AIAnalysis)
+        .where(AIAnalysis.id == ai_record.id)
+        .with_for_update()
+    )
+    if locked_record is None:
+        await db.rollback()
+        return False
+
+    now = datetime.now(timezone.utc)
+    if locked_record.status != AnalysisStatus.pending:
+        return False
+
+    claim_is_active = (
+        locked_record.claim_token is not None
+        and locked_record.claim_expires_at is not None
+        and locked_record.claim_expires_at > now
+    )
+    if claim_is_active and locked_record.claim_token != claim_token:
+        return False
+
+    locked_record.claim_token = claim_token
+    locked_record.claim_expires_at = now + timedelta(seconds=ANALYSIS_CLAIM_LEASE_SECONDS)
+    await db.commit()
+    return True
 
 
 class RetrievalError(Exception):
@@ -93,6 +123,8 @@ def persist_analysis_failure(ai_record, doc, error_code, technical_error: str) -
         ai_record.user_facing_error = user_message
         ai_record.technical_error = technical_error
         ai_record.model_name = None
+        ai_record.claim_token = None
+        ai_record.claim_expires_at = None
         ai_record.generated_at = datetime.utcnow()
     doc.ai_analysis = payload
     return payload
@@ -164,6 +196,8 @@ def persist_retrieval_failure(ai_record, doc, retrieval_err: RetrievalError) -> 
         ai_record.user_facing_error = get_user_facing_message(AnalysisErrorCode.RAG_RETRIEVAL_FAILED)
         ai_record.technical_error = error_message
         ai_record.model_name = None
+        ai_record.claim_token = None
+        ai_record.claim_expires_at = None
         ai_record.generated_at = datetime.utcnow()
     doc.ai_analysis = payload
     return payload
@@ -215,6 +249,20 @@ def analyze_document(self, document_id: str) -> dict:
                     db.add(ai_record)
                     await db.commit()
                     await db.refresh(ai_record)
+
+                claim_token = self.request.id or f"analysis:{document_id}"
+                if not await claim_analysis(db, ai_record, claim_token):
+                    logger.info(
+                        "Skipping duplicate or terminal document analysis: document_id=%s analysis_id=%s status=%s",
+                        document_id,
+                        ai_record.id,
+                        ai_record.status.value,
+                    )
+                    return {
+                        "document_id": document_id,
+                        "status": "skipped",
+                        "reason": "analysis_already_claimed_or_terminal",
+                    }
 
                 import tempfile
                 temp_file = os.path.join(tempfile.gettempdir(), doc.file_reference)
@@ -406,6 +454,8 @@ def analyze_document(self, document_id: str) -> dict:
                         analysis.get("technical_error") if analysis.get("degraded") else None
                     )
                     ai_record.status = AnalysisStatus.error if analysis.get("degraded") else AnalysisStatus.ready
+                    ai_record.claim_token = None
+                    ai_record.claim_expires_at = None
                     ai_record.generated_at = datetime.utcnow()
                     await db.commit()
 

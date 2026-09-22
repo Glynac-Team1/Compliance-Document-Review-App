@@ -1,8 +1,11 @@
 import unittest
+import asyncio
 import os
 import socket
 import urllib.error
 import uuid
+from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, MagicMock
 from unittest.mock import patch
 
 from models import AnalysisStatus
@@ -21,6 +24,7 @@ from worker.celery_app import (
     ANALYSIS_TASK_RETRY_BASE_SECONDS,
     _analysis_retry_countdown,
     analyze_document,
+    claim_analysis,
     persist_analysis_failure,
 )
 
@@ -130,6 +134,39 @@ class TestAnalysisErrors(unittest.TestCase):
                 countdown,
                 ANALYSIS_TASK_RETRY_BASE_SECONDS * (2 ** retry_number),
             )
+
+    def test_analysis_claim_can_be_acquired_and_renewed_by_same_task(self):
+        record = MagicMock(
+            id=uuid.uuid4(),
+            status=AnalysisStatus.pending,
+            claim_token=None,
+            claim_expires_at=None,
+        )
+        db = MagicMock()
+        db.scalar = AsyncMock(return_value=record)
+        db.commit = AsyncMock()
+
+        self.assertTrue(asyncio.run(claim_analysis(db, record, "task-a")))
+        self.assertEqual(record.claim_token, "task-a")
+        self.assertTrue(asyncio.run(claim_analysis(db, record, "task-a")))
+        self.assertEqual(db.commit.await_count, 2)
+
+    def test_active_analysis_claim_rejects_other_task(self):
+        record = MagicMock(
+            id=uuid.uuid4(),
+            status=AnalysisStatus.pending,
+            claim_token="task-a",
+            claim_expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+        db = MagicMock()
+        db.scalar = AsyncMock(return_value=record)
+        db.commit = AsyncMock()
+
+        async def check_claim():
+            return await claim_analysis(db, record, "task-b")
+
+        self.assertFalse(asyncio.run(check_claim()))
+        db.commit.assert_not_awaited()
 
 
 if __name__ == "__main__":
