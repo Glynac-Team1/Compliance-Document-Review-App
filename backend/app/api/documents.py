@@ -6,6 +6,8 @@ from sqlalchemy.orm import aliased
 from pydantic import BaseModel
 import magic
 import asyncio
+import logging
+import random
 import uuid
 import os
 from datetime import datetime, timezone, timedelta
@@ -17,6 +19,10 @@ from models import Role, DocumentStatus, Document, Review, Decision
 
 
 CLAIM_LOCK_TIMEOUT_MINUTES = 30
+ANALYSIS_ENQUEUE_MAX_ATTEMPTS = 3
+ANALYSIS_ENQUEUE_BASE_DELAY_SECONDS = 0.5
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_FILE_TYPES = {
     ".pdf": "application/pdf",
@@ -43,6 +49,57 @@ from celery import Celery
 celery_client = Celery("compliance_review", broker=settings.redis_url)
 
 router = APIRouter()
+
+
+async def enqueue_analysis(document_id: uuid.UUID) -> bool:
+    """Publish analysis work with a small bounded broker retry budget."""
+    for attempt in range(ANALYSIS_ENQUEUE_MAX_ATTEMPTS):
+        try:
+            await asyncio.to_thread(
+                celery_client.send_task,
+                "worker.celery_app.analyze_document",
+                args=[str(document_id)],
+                queue="document-analysis",
+            )
+            return True
+        except Exception as exc:
+            if attempt == ANALYSIS_ENQUEUE_MAX_ATTEMPTS - 1:
+                logger.error(
+                    "Analysis enqueue failed: document_id=%s attempts=%s exception_type=%s",
+                    document_id,
+                    ANALYSIS_ENQUEUE_MAX_ATTEMPTS,
+                    type(exc).__name__,
+                )
+                return False
+            delay = ANALYSIS_ENQUEUE_BASE_DELAY_SECONDS * (2 ** attempt)
+            await asyncio.sleep(random.uniform(delay, delay * 2))
+    return False
+
+
+async def mark_enqueue_failed(db: AsyncSession, document_id: uuid.UUID) -> None:
+    analysis = await db.scalar(select(AIAnalysis).where(AIAnalysis.document_id == document_id))
+    document = await db.scalar(select(Document).where(Document.id == document_id))
+    if analysis is None or document is None:
+        return
+    user_message = get_user_facing_message(AnalysisErrorCode.ANALYSIS_ENQUEUE_FAILED)
+    analysis.status = AnalysisStatus.error
+    analysis.error_code = AnalysisErrorCode.ANALYSIS_ENQUEUE_FAILED.value
+    analysis.user_facing_error = user_message
+    analysis.error_message = "Analysis task could not be published to the broker"
+    analysis.technical_error = "Analysis task could not be published to the broker"
+    analysis.summary = user_message
+    analysis.generated_at = datetime.now(timezone.utc)
+    document.ai_analysis = {
+        "summary": user_message,
+        "flags": [],
+        "precedents": [],
+        "degraded": True,
+        "error_code": AnalysisErrorCode.ANALYSIS_ENQUEUE_FAILED.value,
+        "error_type": "analysis_enqueue_failed",
+        "user_facing_error": user_message,
+        "manual_review_required": True,
+    }
+    await db.commit()
 
 
 @router.post("")
@@ -174,15 +231,56 @@ async def upload_document(
         "document_id": str(new_document.id),
     })
 
-    celery_client.send_task("worker.celery_app.analyze_document", args=[str(new_document.id)], queue="document-analysis")
+    analysis_enqueued = await enqueue_analysis(new_document.id)
+    if not analysis_enqueued:
+        await mark_enqueue_failed(db, new_document.id)
 
     return {
         "document_id": str(new_document.id),
         "status": new_document.status.value,
+        "analysis_queue_status": "queued" if analysis_enqueued else "enqueue_failed",
         "filename": filename,
         "thread_root_id": str(new_document.thread_root_id),
         "previous_version_id": str(new_document.previous_version_id) if new_document.previous_version_id else None
     }
+
+
+@router.post("/{document_id}/analysis/retry")
+async def retry_analysis(
+    document_id: uuid.UUID,
+    token: dict = Depends(require_role(Role.officer)),
+    db: AsyncSession = Depends(get_db),
+):
+    doc = await db.scalar(select(Document).where(Document.id == document_id))
+    if doc is None:
+        raise HTTPException(404, "Document not found")
+
+    officer_id = uuid.UUID(token["sub"])
+    if doc.workspace_id:
+        officer = await db.scalar(select(User).where(User.id == officer_id))
+        if officer and officer.workspace_id and officer.workspace_id != doc.workspace_id:
+            raise HTTPException(403, "Access denied. Document belongs to another workspace.")
+
+    analysis = await db.scalar(select(AIAnalysis).where(AIAnalysis.document_id == document_id))
+    if analysis is None:
+        raise HTTPException(404, "No analysis found for this document")
+    if analysis.error_code != AnalysisErrorCode.ANALYSIS_ENQUEUE_FAILED.value:
+        raise HTTPException(409, "Only analyses that failed to enter the queue can be retried.")
+
+    analysis.status = AnalysisStatus.pending
+    analysis.error_code = None
+    analysis.error_message = None
+    analysis.user_facing_error = None
+    analysis.technical_error = None
+    analysis.summary = None
+    doc.ai_analysis = None
+    await db.commit()
+
+    if not await enqueue_analysis(document_id):
+        await mark_enqueue_failed(db, document_id)
+        raise HTTPException(503, get_user_facing_message(AnalysisErrorCode.ANALYSIS_ENQUEUE_FAILED))
+
+    return {"document_id": str(document_id), "status": AnalysisStatus.pending.value}
 
 
 
