@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form
+from fastapi.responses import FileResponse, Response
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import update, select
@@ -42,7 +43,7 @@ def is_lock_expired(doc: Document) -> bool:
 
 from app.config import settings
 from app.database import get_db
-from app.core.storage import upload_file_to_minio
+from app.core.storage import upload_file_to_minio, LOCAL_STORAGE_DIR, s3_client
 from app.core.analysis_errors import AnalysisErrorCode, get_user_facing_message
 from celery import Celery
 
@@ -881,3 +882,43 @@ async def get_document_audit_trail(
         "audit_events": events,
         "events": legacy_entries,
     }
+
+
+@router.get("/{document_id}/raw")
+async def get_raw_document(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve document file directly from local storage fallback or MinIO."""
+    doc = await db.scalar(select(Document).where(Document.id == document_id))
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    file_ref = doc.file_reference or ""
+    media_type = ALLOWED_FILE_TYPES.get(f".{doc.file_type}", "application/octet-stream")
+    disp_filename = doc.original_filename or f"{doc.id}.{doc.file_type or 'bin'}"
+
+    # Check local filesystem storage first
+    if file_ref.startswith("local://"):
+        local_name = file_ref.replace("local://", "")
+        local_path = os.path.join(LOCAL_STORAGE_DIR, local_name)
+        if os.path.exists(local_path):
+            return FileResponse(
+                local_path,
+                media_type=media_type,
+                filename=disp_filename,
+            )
+
+    # Check MinIO storage
+    try:
+        obj = s3_client.get_object(Bucket=settings.minio_bucket_name, Key=file_ref)
+        data = obj["Body"].read()
+        return Response(
+            content=data,
+            media_type=media_type,
+            headers={"Content-Disposition": f'inline; filename="{disp_filename}"'},
+        )
+    except Exception as exc:
+        logger.error("Raw document download failed for %s: %s", document_id, exc)
+        raise HTTPException(status_code=404, detail="Document file not found in storage")
+

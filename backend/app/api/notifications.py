@@ -170,12 +170,22 @@ async def create_stream_ticket(
 
 @router.get("/stream")
 async def stream_events(
-    ticket: str = Query(...),
+    ticket: str | None = Query(None),
+    token: str | None = Query(None),
 ):
     """Server-Sent Events (SSE) stream for live updates and instant notifications."""
-    user_id = redeem_ticket(ticket)
+    user_id = None
+    if ticket:
+        user_id = redeem_ticket(ticket)
+    elif token:
+        try:
+            payload = decode_raw_token(token)
+            user_id = uuid.UUID(payload["sub"])
+        except Exception:
+            raise HTTPException(401, "Invalid or expired session token")
+
     if user_id is None:
-        raise HTTPException(401, "Invalid or expired ticket")
+        raise HTTPException(401, "Invalid or expired ticket or token")
 
     q = event_manager.register(user_id)
 

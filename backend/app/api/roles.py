@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from sqlalchemy.orm import aliased
@@ -194,6 +194,7 @@ async def submit_review(
 @officer_router.get("/{document_id}/view")
 async def get_document_url(
     document_id: uuid.UUID,
+    request: Request,
     user_token: dict = Depends(require_role(Role.officer)),
     db: AsyncSession = Depends(get_db)
 ):
@@ -207,13 +208,21 @@ async def get_document_url(
         officer = await db.scalar(select(User).where(User.id == officer_id))
         if officer and officer.workspace_id and officer.workspace_id != doc.workspace_id:
             raise HTTPException(status_code=403, detail="Access denied. Document belongs to another workspace.")
-        
+
+    backend_base = str(request.base_url).rstrip("/")
+    file_ref = doc.file_reference or ""
+
+    if file_ref.startswith("local://"):
+        return {"url": f"{backend_base}/documents/{doc.id}/raw"}
+
     from app.core.storage import s3_client
     from app.config import settings
-    url = s3_client.generate_presigned_url(
-        'get_object',
-        Params={'Bucket': settings.minio_bucket_name, 'Key': doc.file_reference},
-        ExpiresIn=3600
-    )
-    # Rewrite the internal Docker URL to localhost so the browser can reach it
-    return {"url": url.replace(settings.minio_endpoint, settings.public_storage_url)}
+    try:
+        url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': settings.minio_bucket_name, 'Key': file_ref},
+            ExpiresIn=3600
+        )
+        return {"url": url.replace(settings.minio_endpoint, settings.public_storage_url)}
+    except Exception:
+        return {"url": f"{backend_base}/documents/{doc.id}/raw"}

@@ -45,11 +45,18 @@ logger = logging.getLogger("compliance_review")
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     correlation_id = str(uuid.uuid4())
-    logger.exception("Unhandled exception [%s] on %s %s", correlation_id, request.method, request.url.path)
-    return JSONResponse(
+    logger.exception("Unhandled exception [%s] on %s %s: %s", correlation_id, request.method, request.url.path, exc)
+    response = JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error. Please try again later.", "correlation_id": correlation_id},
+        content={"detail": f"Internal server error ({type(exc).__name__}). Please try again.", "correlation_id": correlation_id},
     )
+    origin = request.headers.get("origin")
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
 
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(invitations_router, tags=["invitations"])
