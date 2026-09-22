@@ -16,6 +16,7 @@ class AnalysisErrorCode(str, Enum):
     STORAGE_DOWNLOAD_FAILED = "STORAGE_DOWNLOAD_FAILED"
     EMBEDDING_FAILED = "EMBEDDING_FAILED"
     RAG_RETRIEVAL_FAILED = "RAG_RETRIEVAL_FAILED"
+    ANALYSIS_ENQUEUE_FAILED = "ANALYSIS_ENQUEUE_FAILED"
     LLM_FAILED = "LLM_FAILED"
     UNKNOWN_ANALYSIS_ERROR = "UNKNOWN_ANALYSIS_ERROR"
 
@@ -61,6 +62,10 @@ USER_FACING_MESSAGES = {
     AnalysisErrorCode.RAG_RETRIEVAL_FAILED: (
         "The AI analysis could not be completed because the required compliance reference data "
         "could not be retrieved. Please try again or proceed with manual review."
+    ),
+    AnalysisErrorCode.ANALYSIS_ENQUEUE_FAILED: (
+        "The document was saved, but automated analysis could not be queued. "
+        "Please retry the analysis or proceed with manual review."
     ),
     AnalysisErrorCode.LLM_FAILED: (
         "The document was processed, but the AI analysis is currently unavailable and could not be completed. "

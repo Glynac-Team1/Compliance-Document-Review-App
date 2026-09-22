@@ -1,8 +1,9 @@
 import asyncio
 import logging
 import os
+import random
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from celery import Celery
 from sqlalchemy import select, delete
 from sqlalchemy.orm import sessionmaker
@@ -26,6 +27,52 @@ RETRIEVAL_MANUAL_REVIEW_SUMMARY = (
     "could not be retrieved. Please try again or proceed with manual review."
 )
 
+def _positive_int_env(name: str, default: int, minimum: int = 1) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError:
+        logger.warning("Invalid integer configuration; name=%s using_default=%s", name, default)
+        return default
+    return max(minimum, value)
+
+
+ANALYSIS_TASK_MAX_RETRIES = _positive_int_env("ANALYSIS_TASK_MAX_RETRIES", 2, minimum=0)
+ANALYSIS_TASK_RETRY_BASE_SECONDS = _positive_int_env("ANALYSIS_TASK_RETRY_BASE_SECONDS", 30)
+ANALYSIS_CLAIM_LEASE_SECONDS = _positive_int_env("ANALYSIS_CLAIM_LEASE_SECONDS", 900)
+
+
+class RetryableAnalysisError(Exception):
+    """Signals a transient analysis failure that Celery should retry."""
+
+
+async def claim_analysis(db: AsyncSession, ai_record, claim_token: str) -> bool:
+    """Atomically claim a pending analysis or renew the current task's lease."""
+    locked_record = await db.scalar(
+        select(AIAnalysis)
+        .where(AIAnalysis.id == ai_record.id)
+        .with_for_update()
+    )
+    if locked_record is None:
+        await db.rollback()
+        return False
+
+    now = datetime.now(timezone.utc)
+    if locked_record.status != AnalysisStatus.pending:
+        return False
+
+    claim_is_active = (
+        locked_record.claim_token is not None
+        and locked_record.claim_expires_at is not None
+        and locked_record.claim_expires_at > now
+    )
+    if claim_is_active and locked_record.claim_token != claim_token:
+        return False
+
+    locked_record.claim_token = claim_token
+    locked_record.claim_expires_at = now + timedelta(seconds=ANALYSIS_CLAIM_LEASE_SECONDS)
+    await db.commit()
+    return True
+
 
 class RetrievalError(Exception):
     """Raised when a RAG retrieval stage fails and normal LLM analysis must not run."""
@@ -46,7 +93,22 @@ def _safe_retrieval_reason(exc: BaseException) -> str:
 
 
 def _technical_error(exc: BaseException) -> str:
-    return f"{type(exc).__name__}: {exc}"
+    """Return a safe technical identifier without exception message contents."""
+    return type(exc).__name__
+
+
+def _analysis_retry_countdown(retry_number: int) -> int:
+    upper_bound = ANALYSIS_TASK_RETRY_BASE_SECONDS * (2 ** retry_number)
+    return random.randint(ANALYSIS_TASK_RETRY_BASE_SECONDS, upper_bound)
+
+
+def _safe_error_detail(exc: BaseException) -> str:
+    """Preserve stable error identity without storing provider or document text."""
+    cause = exc.__cause__ or exc.__context__
+    names = [type(exc).__name__]
+    if cause is not None and type(cause) is not type(exc):
+        names.append(type(cause).__name__)
+    return ":".join(names)
 
 
 def persist_analysis_failure(ai_record, doc, error_code, technical_error: str) -> dict:
@@ -71,6 +133,8 @@ def persist_analysis_failure(ai_record, doc, error_code, technical_error: str) -
         ai_record.user_facing_error = user_message
         ai_record.technical_error = technical_error
         ai_record.model_name = None
+        ai_record.claim_token = None
+        ai_record.claim_expires_at = None
         ai_record.generated_at = datetime.utcnow()
     doc.ai_analysis = payload
     return payload
@@ -142,6 +206,8 @@ def persist_retrieval_failure(ai_record, doc, retrieval_err: RetrievalError) -> 
         ai_record.user_facing_error = get_user_facing_message(AnalysisErrorCode.RAG_RETRIEVAL_FAILED)
         ai_record.technical_error = error_message
         ai_record.model_name = None
+        ai_record.claim_token = None
+        ai_record.claim_expires_at = None
         ai_record.generated_at = datetime.utcnow()
     doc.ai_analysis = payload
     return payload
@@ -169,9 +235,9 @@ async def fail_closed_on_retrieval_error(db, document_id, ai_record, doc, retrie
 celery_app = Celery("compliance_review", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.task_default_queue = "document-analysis"
 
-@celery_app.task
-def analyze_document(document_id: str) -> dict:
-    async def process():
+@celery_app.task(bind=True, max_retries=ANALYSIS_TASK_MAX_RETRIES)
+def analyze_document(self, document_id: str) -> dict:
+    async def process(final_attempt: bool = False):
         engine = create_async_engine(settings.database_url)
         SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
         try:
@@ -194,6 +260,20 @@ def analyze_document(document_id: str) -> dict:
                     await db.commit()
                     await db.refresh(ai_record)
 
+                claim_token = self.request.id or f"analysis:{document_id}"
+                if not await claim_analysis(db, ai_record, claim_token):
+                    logger.info(
+                        "Skipping duplicate or terminal document analysis: document_id=%s analysis_id=%s status=%s",
+                        document_id,
+                        ai_record.id,
+                        ai_record.status.value,
+                    )
+                    return {
+                        "document_id": document_id,
+                        "status": "skipped",
+                        "reason": "analysis_already_claimed_or_terminal",
+                    }
+
                 import tempfile
                 temp_file = os.path.join(tempfile.gettempdir(), doc.file_reference)
 
@@ -203,7 +283,7 @@ def analyze_document(document_id: str) -> dict:
                         s3_client.download_file(settings.minio_bucket_name, doc.file_reference, temp_file)
                     except Exception as exc:
                         logger.error(
-                            "Document download failed: document_id=%s analysis_id=%s file_type=%s exception_type=%s",
+                            "Document download failed: stage=storage document_id=%s analysis_id=%s file_type=%s exception_type=%s",
                             document_id, ai_record.id, doc.file_type, type(exc).__name__,
                         )
                         persist_analysis_failure(
@@ -247,7 +327,7 @@ def analyze_document(document_id: str) -> dict:
                         chunks = embed_document_chunks(chunk_document(masked_text))
                     except Exception as exc:
                         logger.error(
-                            "Embedding failed: document_id=%s analysis_id=%s file_type=%s exception_type=%s",
+                            "Embedding failed: stage=embedding document_id=%s analysis_id=%s file_type=%s exception_type=%s",
                             document_id, ai_record.id, doc.file_type, type(exc).__name__,
                         )
                         persist_analysis_failure(
@@ -279,6 +359,15 @@ def analyze_document(document_id: str) -> dict:
                         missing_disclosures,
                         precedents,
                     )
+
+                    if (
+                        analysis.get("degraded")
+                        and analysis.get("retryable")
+                        and not final_attempt
+                    ):
+                        raise RetryableAnalysisError(
+                            analysis.get("technical_error") or "Transient LLM provider failure"
+                        )
 
                     analysis["precedents"] = precedents
 
@@ -375,9 +464,13 @@ def analyze_document(document_id: str) -> dict:
                         analysis.get("technical_error") if analysis.get("degraded") else None
                     )
                     ai_record.status = AnalysisStatus.error if analysis.get("degraded") else AnalysisStatus.ready
+                    ai_record.claim_token = None
+                    ai_record.claim_expires_at = None
                     ai_record.generated_at = datetime.utcnow()
                     await db.commit()
 
+                except RetryableAnalysisError:
+                    raise
                 except ExtractionError as e:
                     logger.error(
                         "Document extraction failed: document_id=%s analysis_id=%s file_type=%s "
@@ -386,9 +479,9 @@ def analyze_document(document_id: str) -> dict:
                     )
                     technical_source = e.__cause__
                     technical_error = (
-                        _technical_error(technical_source)
+                        _safe_error_detail(technical_source)
                         if technical_source is not None
-                        else e.technical_message or _technical_error(e)
+                        else _safe_error_detail(e)
                     )
                     persist_analysis_failure(ai_record, doc, e.code, technical_error)
                     await db.commit()
@@ -399,8 +492,9 @@ def analyze_document(document_id: str) -> dict:
                     }
                 except Exception as e:
                     logger.exception(
-                        "Unexpected analysis failure: document_id=%s analysis_id=%s file_type=%s",
+                        "Unexpected analysis failure: stage=analysis document_id=%s analysis_id=%s file_type=%s error_type=%s",
                         document_id, ai_record.id, doc.file_type,
+                        type(e).__name__,
                     )
                     persist_analysis_failure(
                         ai_record, doc, AnalysisErrorCode.UNKNOWN_ANALYSIS_ERROR, _technical_error(e)
@@ -420,5 +514,18 @@ def analyze_document(document_id: str) -> dict:
 
         finally:
             await engine.dispose()
-    return asyncio.run(process())
+    try:
+        return asyncio.run(process(final_attempt=self.request.retries >= ANALYSIS_TASK_MAX_RETRIES))
+    except RetryableAnalysisError as exc:
+        retry_number = self.request.retries + 1
+        countdown = _analysis_retry_countdown(self.request.retries)
+        logger.warning(
+            "Retrying transient document analysis: document_id=%s retry=%s/%s countdown=%s error=%s",
+            document_id,
+            retry_number,
+            ANALYSIS_TASK_MAX_RETRIES,
+            countdown,
+            exc,
+        )
+        raise self.retry(exc=exc, countdown=countdown)
 import app.core.tasks  # noqa: E402,F401 — registers process_support_request

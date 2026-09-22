@@ -170,6 +170,8 @@ class AIAnalysis(Base):
     error_code: Mapped[str | None] = mapped_column(String, nullable=True)
     user_facing_error: Mapped[str | None] = mapped_column(String, nullable=True)
     technical_error: Mapped[str | None] = mapped_column(String, nullable=True)
+    claim_token: Mapped[str | None] = mapped_column(String, nullable=True)
+    claim_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
