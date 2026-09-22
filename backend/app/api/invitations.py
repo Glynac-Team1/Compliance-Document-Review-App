@@ -146,8 +146,13 @@ async def create_invitation(
     )
 
     invite_url = f"/accept-invite?token={invitation.token}"
+    msg = (
+        f"Invitation successfully dispatched to {req.email}"
+        if dispatch_res.success
+        else f"Invitation link generated, but email delivery via Brevo was blocked or failed ({dispatch_res.error or 'check Brevo IP settings'}). You can copy and share the invite link directly from your team dashboard."
+    )
     return {
-        "message": f"Invitation successfully dispatched to {req.email}",
+        "message": msg,
         "email": invitation.email,
         "role": invitation.role.value,
         "workspace": workspace.name,
@@ -157,6 +162,7 @@ async def create_invitation(
         "expires_at": invitation.expires_at.isoformat(),
         "email_dispatched": dispatch_res.success,
         "delivery_mode": dispatch_res.mode,
+        "error": dispatch_res.error,
     }
 
 
