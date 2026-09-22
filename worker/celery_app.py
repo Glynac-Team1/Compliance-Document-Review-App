@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 import uuid
 from datetime import datetime
 from celery import Celery
@@ -26,6 +27,22 @@ RETRIEVAL_MANUAL_REVIEW_SUMMARY = (
     "could not be retrieved. Please try again or proceed with manual review."
 )
 
+def _positive_int_env(name: str, default: int, minimum: int = 1) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError:
+        logger.warning("Invalid integer configuration; name=%s using_default=%s", name, default)
+        return default
+    return max(minimum, value)
+
+
+ANALYSIS_TASK_MAX_RETRIES = _positive_int_env("ANALYSIS_TASK_MAX_RETRIES", 2, minimum=0)
+ANALYSIS_TASK_RETRY_BASE_SECONDS = _positive_int_env("ANALYSIS_TASK_RETRY_BASE_SECONDS", 30)
+
+
+class RetryableAnalysisError(Exception):
+    """Signals a transient analysis failure that Celery should retry."""
+
 
 class RetrievalError(Exception):
     """Raised when a RAG retrieval stage fails and normal LLM analysis must not run."""
@@ -47,6 +64,11 @@ def _safe_retrieval_reason(exc: BaseException) -> str:
 
 def _technical_error(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {exc}"
+
+
+def _analysis_retry_countdown(retry_number: int) -> int:
+    upper_bound = ANALYSIS_TASK_RETRY_BASE_SECONDS * (2 ** retry_number)
+    return random.randint(ANALYSIS_TASK_RETRY_BASE_SECONDS, upper_bound)
 
 
 def persist_analysis_failure(ai_record, doc, error_code, technical_error: str) -> dict:
@@ -169,9 +191,9 @@ async def fail_closed_on_retrieval_error(db, document_id, ai_record, doc, retrie
 celery_app = Celery("compliance_review", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.task_default_queue = "document-analysis"
 
-@celery_app.task
-def analyze_document(document_id: str) -> dict:
-    async def process():
+@celery_app.task(bind=True, max_retries=ANALYSIS_TASK_MAX_RETRIES)
+def analyze_document(self, document_id: str) -> dict:
+    async def process(final_attempt: bool = False):
         engine = create_async_engine(settings.database_url)
         SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
         try:
@@ -280,6 +302,15 @@ def analyze_document(document_id: str) -> dict:
                         precedents,
                     )
 
+                    if (
+                        analysis.get("degraded")
+                        and analysis.get("retryable")
+                        and not final_attempt
+                    ):
+                        raise RetryableAnalysisError(
+                            analysis.get("technical_error") or "Transient LLM provider failure"
+                        )
+
                     analysis["precedents"] = precedents
 
                     # Only persist flags grounded in the rules supplied to the model.
@@ -378,6 +409,8 @@ def analyze_document(document_id: str) -> dict:
                     ai_record.generated_at = datetime.utcnow()
                     await db.commit()
 
+                except RetryableAnalysisError:
+                    raise
                 except ExtractionError as e:
                     logger.error(
                         "Document extraction failed: document_id=%s analysis_id=%s file_type=%s "
@@ -420,5 +453,18 @@ def analyze_document(document_id: str) -> dict:
 
         finally:
             await engine.dispose()
-    return asyncio.run(process())
+    try:
+        return asyncio.run(process(final_attempt=self.request.retries >= ANALYSIS_TASK_MAX_RETRIES))
+    except RetryableAnalysisError as exc:
+        retry_number = self.request.retries + 1
+        countdown = _analysis_retry_countdown(self.request.retries)
+        logger.warning(
+            "Retrying transient document analysis: document_id=%s retry=%s/%s countdown=%s error=%s",
+            document_id,
+            retry_number,
+            ANALYSIS_TASK_MAX_RETRIES,
+            countdown,
+            exc,
+        )
+        raise self.retry(exc=exc, countdown=countdown)
 import app.core.tasks  # noqa: E402,F401 — registers process_support_request

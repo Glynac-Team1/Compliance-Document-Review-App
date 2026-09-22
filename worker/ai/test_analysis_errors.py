@@ -1,7 +1,9 @@
 import unittest
+import os
 import socket
 import urllib.error
 import uuid
+from unittest.mock import patch
 
 from models import AnalysisStatus
 from app.core.analysis_errors import AnalysisErrorCode, get_user_facing_message
@@ -9,11 +11,18 @@ from worker.ai.gemini_assist import (
     DEFAULT_GEMINI_MODEL,
     GeminiAssistEngine,
     LLMFailureCategory,
+    LLMProviderError,
     _classify_provider_error,
     _gemini_candidate_models,
     _is_retryable_http_error,
 )
-from worker.celery_app import persist_analysis_failure
+from worker.celery_app import (
+    ANALYSIS_TASK_MAX_RETRIES,
+    ANALYSIS_TASK_RETRY_BASE_SECONDS,
+    _analysis_retry_countdown,
+    analyze_document,
+    persist_analysis_failure,
+)
 
 
 class _Analysis:
@@ -53,7 +62,12 @@ class TestAnalysisErrors(unittest.TestCase):
         self.assertNotIn("invalid xref table", payload["user_facing_error"])
 
     def test_llm_fallback_is_not_a_normal_analysis(self):
-        result = GeminiAssistEngine(api_key=None).analyze_document("Document text")
+        with patch.dict(
+            os.environ,
+            {"LLM_API_KEY": "", "GEMINI_API_KEY": "", "GROQ_API_KEY": ""},
+            clear=False,
+        ):
+            result = GeminiAssistEngine(api_key=None).analyze_document("Document text")
         self.assertTrue(result["degraded"])
         self.assertEqual(result["error_code"], AnalysisErrorCode.LLM_FAILED.value)
         self.assertEqual(result["flags"], [])
@@ -84,6 +98,38 @@ class TestAnalysisErrors(unittest.TestCase):
             failure.safe_detail,
             "category=rate_limited:provider=groq:model=llama-3.3-70b-versatile:status=429",
         )
+
+    def test_transient_provider_exhaustion_marks_result_retryable(self):
+        engine = GeminiAssistEngine(api_key="test-key", provider="gemini")
+        with patch.object(
+            engine,
+            "_call_provider",
+            side_effect=LLMProviderError(LLMFailureCategory.TRANSIENT, "gemini"),
+        ):
+            result = engine.analyze_masked_document("masked", {})
+        self.assertTrue(result["degraded"])
+        self.assertTrue(result["retryable"])
+
+    def test_permanent_provider_failure_does_not_mark_result_retryable(self):
+        engine = GeminiAssistEngine(api_key="test-key", provider="gemini")
+        with patch.object(
+            engine,
+            "_call_provider",
+            side_effect=LLMProviderError(LLMFailureCategory.AUTHENTICATION, "gemini"),
+        ):
+            result = engine.analyze_masked_document("masked", {})
+        self.assertTrue(result["degraded"])
+        self.assertFalse(result["retryable"])
+
+    def test_celery_retry_budget_and_countdown_are_bounded(self):
+        self.assertEqual(analyze_document.max_retries, ANALYSIS_TASK_MAX_RETRIES)
+        for retry_number in range(ANALYSIS_TASK_MAX_RETRIES + 1):
+            countdown = _analysis_retry_countdown(retry_number)
+            self.assertGreaterEqual(countdown, ANALYSIS_TASK_RETRY_BASE_SECONDS)
+            self.assertLessEqual(
+                countdown,
+                ANALYSIS_TASK_RETRY_BASE_SECONDS * (2 ** retry_number),
+            )
 
 
 if __name__ == "__main__":

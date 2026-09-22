@@ -437,7 +437,11 @@ class GeminiAssistEngine:
             model=model,
         )
 
-    def _fallback_response(self, technical_error: str = "") -> Dict[str, Any]:
+    def _fallback_response(
+        self,
+        technical_error: str = "",
+        retryable: bool = False,
+    ) -> Dict[str, Any]:
         return {
             "summary": get_user_facing_message(AnalysisErrorCode.LLM_FAILED),
             "flags": [],
@@ -447,6 +451,7 @@ class GeminiAssistEngine:
             "error_code": AnalysisErrorCode.LLM_FAILED.value,
             "user_facing_error": get_user_facing_message(AnalysisErrorCode.LLM_FAILED),
             "technical_error": technical_error,
+            "retryable": retryable,
         }
 
     def _call_provider(self, provider: str, payload: Dict[str, Any]) -> Tuple[str, str]:
@@ -523,7 +528,10 @@ class GeminiAssistEngine:
         technical_error = "unknown"
         if last_error is not None:
             technical_error = last_error.safe_detail
-        return self._fallback_response(technical_error)
+        return self._fallback_response(
+            technical_error,
+            retryable=last_error.retryable if last_error is not None else False,
+        )
 
     def analyze_document(
         self, document_text: str, rules_context: Optional[List[Dict[str, str]]] = None
