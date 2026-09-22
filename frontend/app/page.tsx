@@ -20,6 +20,7 @@ import {
   Check,
   Activity,
   ArrowUpRight,
+  X,
 } from "lucide-react";
 import { getApiBaseUrl } from "@/lib/api";
 
@@ -50,6 +51,17 @@ export default function LandingPage() {
   // Copy support email feedback
   const [copiedEmail, setCopiedEmail] = useState(false);
 
+  function handleClearDetectedWorkspace() {
+    localStorage.removeItem("last_workspace_slug");
+    localStorage.removeItem("workspace_name");
+    localStorage.removeItem("auth_token");
+    localStorage.removeItem("user_role");
+    localStorage.removeItem("user_slug");
+    localStorage.removeItem("is_admin");
+    setDetectedSlug(null);
+    setDetectedWorkspaceName(null);
+  }
+
   useEffect(() => {
     const savedSlug = localStorage.getItem("last_workspace_slug");
     const savedName = localStorage.getItem("workspace_name");
@@ -63,7 +75,14 @@ export default function LandingPage() {
       fetch(`${getApiBaseUrl()}/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-        .then((res) => (res.ok ? res.json() : null))
+        .then((res) => {
+          if (res.ok) {
+            return res.json();
+          } else {
+            handleClearDetectedWorkspace();
+            return null;
+          }
+        })
         .then((data) => {
           if (data && data.workspace_slug) {
             setDetectedSlug(data.workspace_slug);
@@ -183,13 +202,24 @@ export default function LandingPage() {
                       <p className="text-base font-extrabold text-foreground truncate">{detectedWorkspaceName}</p>
                     </div>
                   </div>
-                  <Link
-                    href={`/login?workspace=${detectedSlug}`}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition shrink-0 active:scale-95"
-                  >
-                    <span>Enter Workspace</span>
-                    <ArrowRight className="size-3.5" />
-                  </Link>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleClearDetectedWorkspace}
+                      title="Clear saved workspace"
+                      aria-label="Clear saved workspace"
+                      className="inline-flex size-8 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
+                    >
+                      <X className="size-4" />
+                    </button>
+                    <Link
+                      href={`/login?workspace=${detectedSlug}`}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition shrink-0 active:scale-95"
+                    >
+                      <span>Enter Workspace</span>
+                      <ArrowRight className="size-3.5" />
+                    </Link>
+                  </div>
                 </div>
               )}
 

@@ -12,6 +12,7 @@ from app.api.invitations import router as invitations_router
 
 from fastapi.responses import JSONResponse
 from app.core.events import event_manager
+from app.config import settings
 
 app = FastAPI(title="Compliance Document Review API")
 
@@ -25,11 +26,15 @@ async def start_event_manager():
 async def stop_event_manager():
     await event_manager.stop()
 
-# Allow Next.js frontend across localhost, IP, and remote environments
+# Allow Next.js frontend across localhost and Railway environments
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
-    allow_origin_regex=r"http://.*:3000",
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        settings.frontend_url,
+    ],
+    allow_origin_regex=r"(http://.*:3000|https://.*\.up\.railway\.app|https://.*\.vercel\.app)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
