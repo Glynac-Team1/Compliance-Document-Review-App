@@ -1,9 +1,18 @@
 import unittest
+import socket
+import urllib.error
 import uuid
 
 from models import AnalysisStatus
 from app.core.analysis_errors import AnalysisErrorCode, get_user_facing_message
-from worker.ai.gemini_assist import DEFAULT_GEMINI_MODEL, GeminiAssistEngine, _gemini_candidate_models
+from worker.ai.gemini_assist import (
+    DEFAULT_GEMINI_MODEL,
+    GeminiAssistEngine,
+    LLMFailureCategory,
+    _classify_provider_error,
+    _gemini_candidate_models,
+    _is_retryable_http_error,
+)
 from worker.celery_app import persist_analysis_failure
 
 
@@ -52,6 +61,29 @@ class TestAnalysisErrors(unittest.TestCase):
     def test_gemini_default_model_is_current_and_configurable(self):
         self.assertEqual(DEFAULT_GEMINI_MODEL, "gemini-3.6-flash")
         self.assertEqual(_gemini_candidate_models(), ["gemini-3.6-flash"])
+
+    def test_network_timeouts_are_retryable(self):
+        self.assertTrue(_is_retryable_http_error(TimeoutError("timed out")))
+        self.assertTrue(_is_retryable_http_error(socket.timeout("read timed out")))
+        self.assertTrue(_is_retryable_http_error(ConnectionError("reset")))
+
+    def test_permanent_http_errors_are_not_retryable(self):
+        error = urllib.error.HTTPError("https://provider.test", 401, "unauthorized", {}, None)
+        self.assertFalse(_is_retryable_http_error(error))
+        failure = _classify_provider_error(error, "gemini", "gemini-3.6-flash")
+        self.assertEqual(failure.category, LLMFailureCategory.AUTHENTICATION)
+        self.assertFalse(failure.retryable)
+
+    def test_rate_limit_classification_is_safe_and_retryable(self):
+        error = urllib.error.HTTPError("https://provider.test", 429, "rate limited", {}, None)
+        failure = _classify_provider_error(error, "groq", "llama-3.3-70b-versatile")
+        self.assertEqual(failure.category, LLMFailureCategory.RATE_LIMITED)
+        self.assertTrue(failure.retryable)
+        self.assertNotIn("rate limited", failure.safe_detail)
+        self.assertEqual(
+            failure.safe_detail,
+            "category=rate_limited:provider=groq:model=llama-3.3-70b-versatile:status=429",
+        )
 
 
 if __name__ == "__main__":

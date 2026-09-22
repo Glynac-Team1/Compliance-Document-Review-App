@@ -7,11 +7,14 @@ structured Pydantic validation, missing-disclosure detection, and graceful degra
 import json
 import logging
 import os
+import random
 import re
+import socket
 import time
 import urllib.error
 import urllib.request
 import sys
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -19,7 +22,7 @@ try:
     from tenacity import (
         retry,
         stop_after_attempt,
-        wait_exponential,
+        wait_random_exponential,
         retry_if_exception,
     )
     HAS_TENACITY = True
@@ -45,6 +48,79 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS = 20
+DEFAULT_LLM_MAX_ATTEMPTS = 3
+DEFAULT_LLM_RETRY_MIN_SECONDS = 1
+DEFAULT_LLM_RETRY_MAX_SECONDS = 8
+
+
+class LLMFailureCategory(str, Enum):
+    TRANSIENT = "transient"
+    RATE_LIMITED = "rate_limited"
+    AUTHENTICATION = "authentication"
+    INVALID_REQUEST = "invalid_request"
+    MODEL_UNAVAILABLE = "model_unavailable"
+    INVALID_RESPONSE = "invalid_response"
+    CONFIGURATION = "configuration"
+    APPLICATION = "application"
+
+
+class LLMProviderError(Exception):
+    """Safe, classified provider failure used to make fallback decisions."""
+
+    def __init__(
+        self,
+        category: LLMFailureCategory,
+        provider: str,
+        model: Optional[str] = None,
+        status_code: Optional[int] = None,
+    ):
+        self.category = category
+        self.provider = provider
+        self.model = model
+        self.status_code = status_code
+        super().__init__(self.safe_detail)
+
+    @property
+    def retryable(self) -> bool:
+        return self.category in {
+            LLMFailureCategory.TRANSIENT,
+            LLMFailureCategory.RATE_LIMITED,
+        }
+
+    @property
+    def safe_detail(self) -> str:
+        details = [f"category={self.category.value}", f"provider={self.provider}"]
+        if self.model:
+            details.append(f"model={self.model}")
+        if self.status_code is not None:
+            details.append(f"status={self.status_code}")
+        return ":".join(details)
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        logger.warning("Invalid integer configuration; name=%s using_default=%s", name, default)
+        return default
+    return parsed if parsed > 0 else default
+
+
+LLM_REQUEST_TIMEOUT_SECONDS = _positive_int_env(
+    "LLM_REQUEST_TIMEOUT_SECONDS", DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS
+)
+LLM_MAX_ATTEMPTS = _positive_int_env("LLM_MAX_ATTEMPTS", DEFAULT_LLM_MAX_ATTEMPTS)
+LLM_RETRY_MIN_SECONDS = _positive_int_env(
+    "LLM_RETRY_MIN_SECONDS", DEFAULT_LLM_RETRY_MIN_SECONDS
+)
+LLM_RETRY_MAX_SECONDS = max(
+    LLM_RETRY_MIN_SECONDS,
+    _positive_int_env("LLM_RETRY_MAX_SECONDS", DEFAULT_LLM_RETRY_MAX_SECONDS),
+)
 
 
 def _gemini_candidate_models() -> list[str]:
@@ -53,27 +129,65 @@ def _gemini_candidate_models() -> list[str]:
 
 
 def _is_retryable_http_error(exc: BaseException) -> bool:
-    """Check if exception is a retryable HTTP status (429 Rate Limit or 5xx Server Error)."""
+    """Classify failures that may succeed when the same request is attempted later."""
     if isinstance(exc, urllib.error.HTTPError):
         return exc.code == 429 or 500 <= exc.code < 600
     if isinstance(exc, urllib.error.URLError):
         return True
-    return False
+    return isinstance(exc, (TimeoutError, socket.timeout, ConnectionError))
+
+
+def _classify_provider_error(
+    exc: BaseException,
+    provider: str,
+    model: Optional[str] = None,
+) -> LLMProviderError:
+    if isinstance(exc, LLMProviderError):
+        return exc
+    if isinstance(exc, urllib.error.HTTPError):
+        if exc.code == 429:
+            category = LLMFailureCategory.RATE_LIMITED
+        elif 500 <= exc.code < 600:
+            category = LLMFailureCategory.TRANSIENT
+        elif exc.code in {401, 403}:
+            category = LLMFailureCategory.AUTHENTICATION
+        elif exc.code == 404:
+            category = LLMFailureCategory.MODEL_UNAVAILABLE
+        elif 400 <= exc.code < 500:
+            category = LLMFailureCategory.INVALID_REQUEST
+        else:
+            category = LLMFailureCategory.APPLICATION
+        return LLMProviderError(category, provider, model, exc.code)
+    if isinstance(exc, (urllib.error.URLError, TimeoutError, socket.timeout, ConnectionError)):
+        return LLMProviderError(LLMFailureCategory.TRANSIENT, provider, model)
+    if isinstance(exc, (json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError)):
+        return LLMProviderError(LLMFailureCategory.INVALID_RESPONSE, provider, model)
+    return LLMProviderError(LLMFailureCategory.APPLICATION, provider, model)
 
 
 if HAS_TENACITY:
     @retry(
         reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
+        stop=stop_after_attempt(LLM_MAX_ATTEMPTS),
+        wait=wait_random_exponential(
+            multiplier=1,
+            min=LLM_RETRY_MIN_SECONDS,
+            max=LLM_RETRY_MAX_SECONDS,
+        ),
         retry=retry_if_exception(_is_retryable_http_error),
     )
-    def _execute_request_with_retry(req: urllib.request.Request, timeout: int = 20) -> Any:
+    def _execute_request_with_retry(
+        req: urllib.request.Request,
+        timeout: int = LLM_REQUEST_TIMEOUT_SECONDS,
+    ) -> Any:
         with urllib.request.urlopen(req, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
 else:
-    def _execute_request_with_retry(req: urllib.request.Request, timeout: int = 20) -> Any:
-        attempts = 3
+    def _execute_request_with_retry(
+        req: urllib.request.Request,
+        timeout: int = LLM_REQUEST_TIMEOUT_SECONDS,
+    ) -> Any:
+        attempts = LLM_MAX_ATTEMPTS
         last_error = None
         for attempt in range(1, attempts + 1):
             try:
@@ -82,7 +196,11 @@ else:
             except Exception as e:
                 last_error = e
                 if attempt < attempts and _is_retryable_http_error(e):
-                    time.sleep(2 ** (attempt - 1))
+                    lower = min(
+                        LLM_RETRY_MAX_SECONDS,
+                        LLM_RETRY_MIN_SECONDS * (2 ** (attempt - 1)),
+                    )
+                    time.sleep(random.uniform(lower, LLM_RETRY_MAX_SECONDS))
                     continue
                 raise
         raise last_error or RuntimeError("Network request failed after retries.")
@@ -219,7 +337,7 @@ class GeminiAssistEngine:
                         "x-goog-api-key": self.gemini_api_key,
                     },
                 )
-                res_body = _execute_request_with_retry(req, timeout=20)
+                res_body = _execute_request_with_retry(req, timeout=LLM_REQUEST_TIMEOUT_SECONDS)
                 return self._extract_gemini_text(res_body), model
             except urllib.error.HTTPError as e:
                 last_error = e
@@ -248,7 +366,7 @@ class GeminiAssistEngine:
                 "Authorization": f"Bearer {api_key}",
             },
         )
-        res_body = _execute_request_with_retry(req, timeout=20)
+        res_body = _execute_request_with_retry(req, timeout=LLM_REQUEST_TIMEOUT_SECONDS)
         return self._extract_groq_text(res_body), payload.get("model", "llama-3.3-70b-versatile")
 
     @staticmethod
@@ -362,8 +480,9 @@ class GeminiAssistEngine:
         if secondary_key:
             providers.append(secondary)
 
-        last_error = None
+        last_error: Optional[LLMProviderError] = None
         for index, provider in enumerate(providers):
+            payload = None
             try:
                 payload = self._build_payload(
                     masked_text, rules_context, missing_disclosures, precedents, provider
@@ -386,20 +505,24 @@ class GeminiAssistEngine:
                     "model": validated.model,
                 }
             except Exception as error:
-                last_error = error
-                if index == 0 and len(providers) > 1:
+                model = payload.get("model") if isinstance(payload, dict) else None
+                failure = _classify_provider_error(error, provider, model)
+                last_error = failure
+                if index == 0 and len(providers) > 1 and failure.retryable:
                     logger.warning(
-                        "Primary LLM provider failed; provider=%s exception_type=%s",
-                        provider, type(error).__name__,
+                        "Primary LLM provider failed; provider=%s category=%s retryable=%s",
+                        provider, failure.category.value, failure.retryable,
                     )
                 else:
                     logger.error(
-                        "LLM analysis failed: provider=%s exception_type=%s",
-                        provider, type(error).__name__,
+                        "LLM analysis failed: provider=%s category=%s retryable=%s",
+                        provider, failure.category.value, failure.retryable,
                     )
+                if not failure.retryable:
+                    break
         technical_error = "unknown"
         if last_error is not None:
-            technical_error = f"{type(last_error).__name__}: {last_error}"
+            technical_error = last_error.safe_detail
         return self._fallback_response(technical_error)
 
     def analyze_document(
