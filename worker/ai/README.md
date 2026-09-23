@@ -2,13 +2,13 @@
 
 **Engineer:** Basamsetti Venkata Vamsi  
 **Track:** AI Engineering  
-**Scope:** Server-Side PII Masker, Gemini & Groq Assist Engine with Failover, Strict Pydantic JSON Output Schemas, Traceable Flag Generation, Missing-Disclosure Detection by Absence, Reverse Unmasking for Display, and Outbound Privacy Payload Auditing.
+**Scope:** Server-Side PII Masker, Gemini, Groq & OpenRouter Assist Engine with Dynamic Failover, Strict Pydantic JSON Output Schemas, Traceable Flag Generation, Missing-Disclosure Detection by Absence, Reverse Unmasking for Display, and Outbound Privacy Payload Auditing.
 
 ---
 
 ## 1. Architecture Overview
 
-The AI feature runs against third-party LLM providers (**Gemini `gemini-3.6-flash`** via Google AI Studio and **Groq `llama-3.3-70b-versatile`** when configured). `GEMINI_MODEL` can override the Gemini default. Per the project privacy wall requirement, **raw client data never leaves the application perimeter**.
+The AI feature runs against third-party LLM providers (**Gemini `gemini-3.6-flash`** via Google AI Studio, **OpenRouter `google/gemini-2.5-flash`**, and **Groq `llama-3.3-70b-versatile`** when configured). `GEMINI_MODEL`, `OPENROUTER_MODEL`, and `GROQ_MODEL` can override defaults. An automatic failover chain (`LLM_FALLBACK_PROVIDERS`) makes the analysis resilient against rate limits and upstream outages. Per the project privacy wall requirement, **raw client data never leaves the application perimeter**.
 
 ```
   Uploaded Document Text (Raw)
@@ -22,8 +22,8 @@ The AI feature runs against third-party LLM providers (**Gemini `gemini-3.6-flas
                ▼  (Zero raw PII leaves perimeter)
    ┌───────────────────────┐
   │  Outbound AI Payload  │ ───► Gemini 3.6 Flash API (Primary)
-   │ (Masked Text + Rules) │      └── Failover: Groq LLaMA-3.3-70B
-   └───────────────────────┘
+   │ (Masked Text + Rules) │      ├── Failover 1: OpenRouter (Multi-Model Gateway)
+   └───────────────────────┘      └── Failover 2: Groq LLaMA-3.3-70B
                │
                ▼  (Structured JSON: summary + traceable flags)
    ┌───────────────────────┐
@@ -75,7 +75,9 @@ Per the project evaluation criteria, the masker is intentionally focused and doc
 ## 4. Multi-Provider Assist Engine (`gemini_assist.py`)
 
 - **Primary Provider:** Google AI Studio Gemini (`gemini-3.6-flash` by default; `GEMINI_MODEL` override supported).
-- **Alternative Provider:** Groq (`llama-3.3-70b-versatile` via OpenAI-compatible endpoint) when `LLM_PROVIDER=groq` and its key is available.
+- **OpenRouter Gateway:** OpenAI-compatible completions via OpenRouter (`google/gemini-2.5-flash` default; `OPENROUTER_MODEL` override supported) when `OPENROUTER_API_KEY` is present.
+- **Groq Provider:** Groq ultra-low-latency endpoint (`llama-3.3-70b-versatile` via OpenAI-compatible API; `GROQ_MODEL` override supported) when `GROQ_API_KEY` is present.
+- **Configurable Dynamic Failover:** Automatically switches from primary to fallbacks (`LLM_FALLBACK_PROVIDERS="openrouter,groq"`) upon retry exhaustion or rate limits (HTTP 429 / 5xx).
 - **Missing-Disclosure Detection by Absence:** Evaluates whether mandatory disclaimers (*"Past performance is no guarantee of future results"*, *"Loss of principal risk"*, fee schedules) are absent when securities/performance are discussed, producing `[MISSING MANDATORY DISCLOSURE]` flags.
 - **Strict Pydantic Schema Validation:** Validates output against `AIAnalysisResult` and `ComplianceFlag` models (`passage`, `matched_rule_id`, `severity` [HIGH/MEDIUM/LOW], `explanation`).
 - **Zero AI Verdicts:** The AI assistant only provides orientation flags; it **never** sets or pre-fills the final review status.
@@ -112,13 +114,15 @@ The script prints the raw text, local reverse mapping table, the exact HTTP JSON
 Run the full AI test suite:
 
 ```bash
-python -m pytest worker/ai/test_pii_masker.py -v
+python -m pytest worker/ai/test_pii_masker.py worker/ai/test_llm_fallback.py -v
 ```
 
-All 15 test cases verify:
+All 23 test cases verify:
 - Individual and multiple entity placeholder replacement.
 - Server-side reverse mapping and round-trip unmasking.
-- Groq & Gemini outbound payload formatting.
+- Groq, OpenRouter & Gemini outbound payload formatting conforming to OpenAI and Google specifications.
+- Multi-tier automatic LLM failover resilience (Gemini -> OpenRouter -> Groq).
+- Custom `LLM_FALLBACK_PROVIDERS` provider sequencing.
 - Pydantic schema normalization & validation.
 - Missing disclosure flag validation.
 - Markdown fence stripping from LLM outputs.

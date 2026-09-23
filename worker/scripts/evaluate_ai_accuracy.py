@@ -157,7 +157,7 @@ def evaluate_fixtures():
     print(f"  * Total Fixtures Evaluated: {scorecard['fixtures_evaluated']}")
     print(f"  * Privacy Wall Outbound Leak Rate: {scorecard['privacy_wall_leak_rate'] * 100:.1f}% (Zero PII Leaks)")
     print(f"  * Pydantic Schema Validation: ENFORCED")
-    print(f"  * Multi-Provider Failover: CONFIGURED (Gemini <-> Groq)")
+    print(f"  * Multi-Provider Failover: CONFIGURED (Gemini <-> OpenRouter <-> Groq)")
     print("=" * 80)
 
 

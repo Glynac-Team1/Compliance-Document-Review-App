@@ -116,6 +116,19 @@ class TestPIIMasker(unittest.TestCase):
         self.assertNotIn("eleanor@vance.io", json.dumps(payload))
         self.assertIn("[EMAIL_1]", json.dumps(payload))
 
+    def test_openrouter_outbound_payload_structure(self):
+        """Verifies OpenRouter provider payload format conforming to OpenAI chat completions."""
+        or_engine = GeminiAssistEngine(api_key="mock_or_key", provider="openrouter")
+        text = "Client Eleanor Vance email eleanor@vance.io invested $100,000."
+        payload, mapping = or_engine.get_outbound_payload(text)
+        self.assertIn("model", payload)
+        self.assertIn("messages", payload)
+        self.assertEqual(payload["response_format"], {"type": "json_object"})
+        self.assertNotIn("eleanor@vance.io", json.dumps(payload))
+        self.assertIn("[EMAIL_1]", json.dumps(payload))
+        self.assertEqual(payload["messages"][0]["role"], "system")
+        self.assertEqual(payload["messages"][1]["role"], "user")
+
     def test_pydantic_schema_normalization(self):
         """Tests that Pydantic models normalize string casing and validate schemas."""
         from worker.ai.schemas import ComplianceFlag, AIAnalysisResult, Severity

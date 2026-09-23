@@ -1,7 +1,7 @@
 """
 AI Assist Engine for Compliance Document Review.
-Supports Gemini (Google AI Studio) and Groq LLMs with server-side PII masking,
-structured Pydantic validation, missing-disclosure detection, and graceful degradation.
+Supports Gemini (Google AI Studio), Groq, and OpenRouter LLMs with server-side PII masking,
+structured Pydantic validation, multi-LLM fallback failover, missing-disclosure detection, and graceful degradation.
 """
 
 import json
@@ -48,6 +48,9 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_OPENROUTER_MODEL = "google/gemini-2.5-flash"
+SUPPORTED_PROVIDERS = {"gemini", "groq", "openrouter"}
 DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS = 20
 DEFAULT_LLM_MAX_ATTEMPTS = 3
 DEFAULT_LLM_RETRY_MIN_SECONDS = 1
@@ -245,22 +248,78 @@ class GeminiAssistEngine:
         api_key: Optional[str] = None,
         provider: Optional[str] = None,
         groq_api_key: Optional[str] = None,
+        openrouter_api_key: Optional[str] = None,
+        fallback_providers: Optional[Sequence[str]] = None,
     ):
         configured_provider = (provider or os.environ.get("LLM_PROVIDER") or "gemini").strip().lower()
-        self.provider = configured_provider if configured_provider in {"gemini", "groq"} else "gemini"
+        self.provider = configured_provider if configured_provider in SUPPORTED_PROVIDERS else "gemini"
+        
+        generic_key = api_key or os.environ.get("LLM_API_KEY")
+
         self.gemini_api_key = (
-            api_key
-            or os.environ.get("GEMINI_API_KEY")
-            or os.environ.get("LLM_API_KEY")
+            os.environ.get("GEMINI_API_KEY")
+            or (generic_key if self.provider == "gemini" else None)
         )
         self.groq_api_key = (
             groq_api_key
             or os.environ.get("GROQ_API_KEY")
-            or (self.gemini_api_key if self.provider == "groq" else None)
+            or (generic_key if self.provider == "groq" else None)
         )
-        # Keep this alias for callers of the earlier masked-pipeline API.
-        self.api_key = self.groq_api_key if self.provider == "groq" else self.gemini_api_key
+        self.openrouter_api_key = (
+            openrouter_api_key
+            or os.environ.get("OPENROUTER_API_KEY")
+            or (generic_key if self.provider == "openrouter" else None)
+        )
+
+        # Legacy alias for callers of earlier single-key API
+        if self.provider == "groq":
+            self.api_key = self.groq_api_key
+        elif self.provider == "openrouter":
+            self.api_key = self.openrouter_api_key
+        else:
+            self.api_key = self.gemini_api_key
+
+        if fallback_providers is not None:
+            self.fallback_providers = [
+                p.strip().lower() for p in fallback_providers if p.strip().lower() in SUPPORTED_PROVIDERS
+            ]
+        else:
+            env_fallbacks = os.environ.get("LLM_FALLBACK_PROVIDERS")
+            if env_fallbacks:
+                self.fallback_providers = [
+                    p.strip().lower() for p in env_fallbacks.split(",") if p.strip().lower() in SUPPORTED_PROVIDERS
+                ]
+            else:
+                self.fallback_providers = None
+
         self.masker = PIIMasker()
+
+    def _get_provider_key(self, provider: str) -> Optional[str]:
+        """Returns the configured API key for the specified provider."""
+        if provider == "gemini":
+            return self.gemini_api_key
+        elif provider == "groq":
+            return self.groq_api_key
+        elif provider == "openrouter":
+            return self.openrouter_api_key
+        return None
+
+    def _get_fallback_chain(self) -> List[str]:
+        """
+        Determines the ordered chain of providers to attempt.
+        Starts with self.provider, followed by explicit fallback_providers or all configured providers.
+        """
+        chain = [self.provider]
+        if self.fallback_providers is not None:
+            for p in self.fallback_providers:
+                if p not in chain and p in SUPPORTED_PROVIDERS:
+                    chain.append(p)
+        else:
+            default_preference = ["gemini", "openrouter", "groq"]
+            for p in default_preference:
+                if p not in chain and p in SUPPORTED_PROVIDERS:
+                    chain.append(p)
+        return chain
 
     def get_outbound_payload(
         self, document_text: str, rules_context: Optional[List[Dict[str, str]]] = None
@@ -297,9 +356,13 @@ class GeminiAssistEngine:
         user_prompt = "\n\n".join(sections)
         selected_provider = provider or self.provider
 
-        if selected_provider == "groq":
+        if selected_provider in {"groq", "openrouter"}:
+            if selected_provider == "openrouter":
+                model_name = os.environ.get("OPENROUTER_MODEL", DEFAULT_OPENROUTER_MODEL)
+            else:
+                model_name = os.environ.get("GROQ_MODEL", DEFAULT_GROQ_MODEL)
             return {
-                "model": os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+                "model": model_name,
                 "messages": [
                     {"role": "system", "content": self.SYSTEM_INSTRUCTION},
                     {"role": "user", "content": user_prompt},
@@ -367,7 +430,29 @@ class GeminiAssistEngine:
             },
         )
         res_body = _execute_request_with_retry(req, timeout=LLM_REQUEST_TIMEOUT_SECONDS)
-        return self._extract_groq_text(res_body), payload.get("model", "llama-3.3-70b-versatile")
+        return self._extract_groq_text(res_body), payload.get("model", DEFAULT_GROQ_MODEL)
+
+    def _call_openrouter_api(self, payload: Dict[str, Any]) -> Tuple[str, str]:
+        """Calls OpenRouter OpenAI-compatible Chat Completions API with exponential backoff."""
+        api_key = self.openrouter_api_key or self.api_key
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY / LLM_API_KEY is missing.")
+
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "HTTP-Referer": os.environ.get("OPENROUTER_SITE_URL", "https://compliance-review.local"),
+            "X-Title": os.environ.get("OPENROUTER_APP_NAME", "Compliance Document Review"),
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+        )
+        res_body = _execute_request_with_retry(req, timeout=LLM_REQUEST_TIMEOUT_SECONDS)
+        model = payload.get("model", os.environ.get("OPENROUTER_MODEL", DEFAULT_OPENROUTER_MODEL))
+        return self._extract_openrouter_text(res_body), model
 
     @staticmethod
     def _extract_gemini_text(response: Mapping[str, Any]) -> str:
@@ -383,10 +468,10 @@ class GeminiAssistEngine:
         return text
 
     @staticmethod
-    def _extract_groq_text(response: Mapping[str, Any]) -> str:
+    def _extract_chat_completion_text(response: Mapping[str, Any], provider_name: str = "LLM") -> str:
         choices = response.get("choices")
         if not isinstance(choices, list) or not choices:
-            raise ValueError("Groq response contained no choices")
+            raise ValueError(f"{provider_name} response contained no choices")
         content = choices[0].get("message", {}).get("content")
         if isinstance(content, str) and content.strip():
             return content
@@ -396,7 +481,15 @@ class GeminiAssistEngine:
             )
             if text.strip():
                 return text
-        raise ValueError("Groq response contained no text")
+        raise ValueError(f"{provider_name} response contained no text")
+
+    @classmethod
+    def _extract_groq_text(cls, response: Mapping[str, Any]) -> str:
+        return cls._extract_chat_completion_text(response, provider_name="Groq")
+
+    @classmethod
+    def _extract_openrouter_text(cls, response: Mapping[str, Any]) -> str:
+        return cls._extract_chat_completion_text(response, provider_name="OpenRouter")
 
     @staticmethod
     def _clean_json_string(text: str) -> str:
@@ -457,6 +550,8 @@ class GeminiAssistEngine:
     def _call_provider(self, provider: str, payload: Dict[str, Any]) -> Tuple[str, str]:
         if provider == "groq":
             return self._call_groq_api(payload)
+        elif provider == "openrouter":
+            return self._call_openrouter_api(payload)
         return self._call_gemini_api(payload)
 
     def _analyze_masked(
@@ -475,18 +570,15 @@ class GeminiAssistEngine:
             return fallback
         if not isinstance(mapping, Mapping):
             raise TypeError("mapping must be a mapping of placeholders to original values")
-        if not (self.gemini_api_key or self.groq_api_key):
-            logger.warning("No LLM API key configured; returning degraded analysis")
+
+        fallback_chain = self._get_fallback_chain()
+        active_providers = [p for p in fallback_chain if self._get_provider_key(p)]
+        if not active_providers:
+            logger.warning("No LLM API key configured for any provider; returning degraded analysis")
             return self._fallback_response("ConfigurationError: missing LLM API key")
 
-        providers = [self.provider]
-        secondary = "groq" if self.provider == "gemini" else "gemini"
-        secondary_key = self.groq_api_key if secondary == "groq" else self.gemini_api_key
-        if secondary_key:
-            providers.append(secondary)
-
         last_error: Optional[LLMProviderError] = None
-        for index, provider in enumerate(providers):
+        for index, provider in enumerate(active_providers):
             payload = None
             try:
                 payload = self._build_payload(
@@ -513,25 +605,23 @@ class GeminiAssistEngine:
                 model = payload.get("model") if isinstance(payload, dict) else None
                 failure = _classify_provider_error(error, provider, model)
                 last_error = failure
-                if index == 0 and len(providers) > 1 and failure.retryable:
+                if index < len(active_providers) - 1:
+                    next_provider = active_providers[index + 1]
                     logger.warning(
-                        "Primary LLM provider failed; provider=%s model=%s category=%s status=%s fallback=secondary",
+                        "LLM provider '%s' failed (category=%s status=%s); falling back to '%s'",
                         provider,
-                        failure.model or "unknown",
                         failure.category.value,
                         failure.status_code or "none",
+                        next_provider,
                     )
                 else:
                     logger.error(
-                        "LLM analysis failed: provider=%s model=%s category=%s status=%s retryable=%s",
+                        "All LLM providers in fallback chain failed. Last provider '%s' failed (category=%s status=%s retryable=%s)",
                         provider,
-                        failure.model or "unknown",
                         failure.category.value,
                         failure.status_code or "none",
                         failure.retryable,
                     )
-                if not failure.retryable:
-                    break
         technical_error = "unknown"
         if last_error is not None:
             technical_error = last_error.safe_detail
