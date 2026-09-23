@@ -72,7 +72,7 @@ def inspect_privacy_wall(document_text: str) -> bool:
         print(f"  {placeholder:<16} ---> {original_value}")
 
     print("\n" + "-" * 80)
-    print("[STAGE 3] EXACT OUTBOUND PAYLOAD SENT TO THIRD-PARTY LLM (Gemini / Groq):")
+    print("[STAGE 3] EXACT OUTBOUND PAYLOAD SENT TO THIRD-PARTY LLM (Gemini / Groq / OpenRouter):")
     print("  (Inspecting literal HTTP request body)")
     print("-" * 80)
     payload_str = json.dumps(payload, indent=2)

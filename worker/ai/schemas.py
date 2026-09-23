@@ -52,7 +52,7 @@ class AIAnalysisResult(BaseModel):
     )
     provider: Optional[str] = Field(
         default=None,
-        description="LLM provider used (e.g. 'gemini', 'groq', 'degraded_fallback')"
+        description="LLM provider used (e.g. 'gemini', 'groq', 'openrouter', 'degraded_fallback')"
     )
     model: Optional[str] = Field(
         default=None,
