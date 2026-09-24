@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ShieldCheck,
@@ -39,8 +38,6 @@ function BrandMark() {
 }
 
 export default function LandingPage() {
-  const router = useRouter();
-
   // Remembered session state
   const [detectedSlug, setDetectedSlug] = useState<string | null>(null);
   const [detectedWorkspaceName, setDetectedWorkspaceName] = useState<string | null>(null);

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ShieldCheck,
@@ -25,6 +24,7 @@ import {
   AlertTriangle,
   RotateCcw,
   Loader2,
+  MoreVertical,
 } from "lucide-react";
 import { getApiBaseUrl, formatApiError } from "@/lib/api";
 
@@ -72,7 +72,6 @@ interface CurrentUser {
 }
 
 export default function AdminConsolePage() {
-  const router = useRouter();
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
@@ -84,11 +83,23 @@ export default function AdminConsolePage() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState("");
 
+  // Admin Recovery State
+  const [showRecoveryForm, setShowRecoveryForm] = useState(false);
+  const [recoveryEmail, setRecoveryEmail] = useState("");
+  const [recoveryKey, setRecoveryKey] = useState("");
+  const [newAdminPassword, setNewAdminPassword] = useState("");
+  const [confirmAdminPassword, setConfirmAdminPassword] = useState("");
+  const [showRecoveryPassword, setShowRecoveryPassword] = useState(false);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [newRecoveryKeyGenerated, setNewRecoveryKeyGenerated] = useState<string | null>(null);
+  const [copiedRecoveryKey, setCopiedRecoveryKey] = useState(false);
+
   // Admin Console State
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"advisor" | "officer">("advisor");
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [team, setTeam] = useState<TeamMember[]>([]);
+  const [openMenuMemberId, setOpenMenuMemberId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
@@ -296,6 +307,105 @@ export default function AdminConsolePage() {
       setLoginError(err.message || "Failed to authenticate administrator.");
     } finally {
       setLoginLoading(false);
+    }
+  }
+
+  async function handleAdminRecovery(e: FormEvent) {
+    e.preventDefault();
+    setLoginError("");
+
+    if (newAdminPassword.length < 8) {
+      setToast({
+        id: "rec-pass-len",
+        type: "error",
+        title: "Weak Password",
+        message: "Password must be at least 8 characters long.",
+      });
+      return;
+    }
+
+    if (newAdminPassword !== confirmAdminPassword) {
+      setToast({
+        id: "rec-pass-mismatch",
+        type: "error",
+        title: "Password Mismatch",
+        message: "The entered passwords do not match.",
+      });
+      return;
+    }
+
+    setRecoveryLoading(true);
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/auth/admin/recover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: recoveryEmail.trim().toLowerCase(),
+          recovery_key: recoveryKey.trim(),
+          new_password: newAdminPassword,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(formatApiError(data.detail, "Recovery failed. Please check your recovery key."));
+      }
+
+      setNewRecoveryKeyGenerated(data.new_recovery_key);
+      setToast({
+        id: "admin-recovery-success",
+        type: "success",
+        title: "Password Updated",
+        message: "Administrator password updated. Please save your new recovery key.",
+      });
+    } catch (err: any) {
+      setToast({
+        id: "admin-recovery-err",
+        type: "error",
+        title: "Recovery Failed",
+        message: err.message || "Failed to recover administrator account.",
+      });
+    } finally {
+      setRecoveryLoading(false);
+    }
+  }
+
+  async function handleResetUserPassword(memberId: string, memberEmail: string) {
+    setActionInProgress(memberId);
+    const token = localStorage.getItem("auth_token");
+
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/admin/team/${memberId}/reset-password`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(formatApiError(data.detail, "Failed to generate password reset link."));
+      }
+
+      if (data.reset_url) {
+        navigator.clipboard.writeText(data.reset_url);
+      }
+
+      setToast({
+        id: `reset-${memberId}`,
+        type: "success",
+        title: "Reset Link Ready",
+        message: data.email_sent
+          ? `Reset link sent to ${memberEmail} and copied to clipboard.`
+          : `Reset link generated and copied to clipboard.`,
+      });
+    } catch (err: any) {
+      setToast({
+        id: `reset-err-${memberId}`,
+        type: "error",
+        title: "Reset Failed",
+        message: err.message || "Failed to generate reset link.",
+      });
+    } finally {
+      setActionInProgress(null);
     }
   }
 
@@ -637,82 +747,247 @@ export default function AdminConsolePage() {
               </span>
             </div>
 
-            <div className="mb-6">
-              <h2 className="text-xl font-bold tracking-tight text-foreground">
-                Sign in to Admin Console
-              </h2>
-              <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                This administrative console is strictly reserved for workspace administrators to manage invitations, team directories, and access policies.
-              </p>
-            </div>
-
-            {/* Error Message */}
-            {loginError && (
-              <div className="mb-5 rounded-xl border border-destructive/25 bg-destructive/10 p-3 text-xs font-medium text-destructive flex items-start gap-2">
-                <ShieldAlert className="size-4 shrink-0 mt-0.5" />
-                <span>{loginError}</span>
-              </div>
-            )}
-
-            {/* Admin Login Form */}
-            <form onSubmit={handleAdminLogin} className="flex flex-col gap-4">
-              <label className="flex flex-col gap-1.5 text-xs font-semibold text-foreground">
-                Corporate administrator email
-                <div className="relative">
-                  <Mail className="absolute left-3.5 top-3.5 size-4 text-muted-foreground pointer-events-none" />
-                  <input
-                    required
-                    type="email"
-                    value={loginEmail}
-                    onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="admin@company.com"
-                    className="h-11 w-full rounded-xl border border-input bg-background pl-10 pr-3.5 text-xs font-normal text-foreground outline-none transition placeholder:text-muted-foreground/60 focus:border-primary focus:ring-2 focus:ring-primary/10"
-                  />
+            {newRecoveryKeyGenerated ? (
+              <div className="space-y-4">
+                <div>
+                  <h2 className="text-xl font-bold tracking-tight text-foreground">
+                    Password Reset Complete
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+                    Your password has been updated. Save your new Master Recovery Key in a secure vault.
+                  </p>
                 </div>
-              </label>
 
-              <label className="flex flex-col gap-1.5 text-xs font-semibold text-foreground">
-                Master password
-                <div className="relative">
-                  <LockKeyhole className="absolute left-3.5 top-3.5 size-4 text-muted-foreground pointer-events-none" />
-                  <input
-                    required
-                    type={showLoginPassword ? "text" : "password"}
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="h-11 w-full rounded-xl border border-input bg-background pl-10 pr-10 text-xs font-normal text-foreground outline-none transition placeholder:text-muted-foreground/60 focus:border-primary focus:ring-2 focus:ring-primary/10"
-                  />
+                <div className="rounded-xl border border-border bg-muted/40 p-3.5 space-y-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
+                    New Master Recovery Key
+                  </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <code className="text-xs font-mono font-bold text-foreground break-all">
+                      {newRecoveryKeyGenerated}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(newRecoveryKeyGenerated);
+                        setCopiedRecoveryKey(true);
+                        setTimeout(() => setCopiedRecoveryKey(false), 2500);
+                      }}
+                      className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                    >
+                      {copiedRecoveryKey ? (
+                        <>
+                          <Check className="size-3.5 text-emerald-600" />
+                          <span>Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="size-3.5" />
+                          <span>Copy</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewRecoveryKeyGenerated(null);
+                    setShowRecoveryForm(false);
+                    setLoginPassword("");
+                  }}
+                  className="w-full flex h-11 items-center justify-center gap-2 rounded-xl bg-primary text-xs font-semibold text-primary-foreground shadow-md shadow-primary/20 transition hover:bg-primary/90 cursor-pointer"
+                >
+                  <span>Continue to Sign In</span>
+                  <ArrowRight className="size-3.5" />
+                </button>
+              </div>
+            ) : showRecoveryForm ? (
+              <div>
+                <div className="mb-6">
+                  <h2 className="text-xl font-bold tracking-tight text-foreground">
+                    Recover Admin Account
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+                    Enter your email, Master Recovery Key, and choose a new password.
+                  </p>
+                </div>
+
+                <form onSubmit={handleAdminRecovery} className="flex flex-col gap-4">
+                  <label className="flex flex-col gap-1.5 text-xs font-semibold text-foreground">
+                    Administrator email
+                    <input
+                      required
+                      type="email"
+                      value={recoveryEmail}
+                      onChange={(e) => setRecoveryEmail(e.target.value)}
+                      placeholder="admin@company.com"
+                      className="h-11 w-full rounded-xl border border-input bg-background px-3.5 text-xs font-normal text-foreground outline-none transition placeholder:text-muted-foreground/60 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                    />
+                  </label>
+
+                  <label className="flex flex-col gap-1.5 text-xs font-semibold text-foreground">
+                    Master Recovery Key
+                    <input
+                      required
+                      type="text"
+                      value={recoveryKey}
+                      onChange={(e) => setRecoveryKey(e.target.value)}
+                      placeholder="rec_..."
+                      className="h-11 w-full rounded-xl border border-input bg-background px-3.5 text-xs font-mono font-normal text-foreground outline-none transition placeholder:text-muted-foreground/60 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                    />
+                  </label>
+
+                  <label className="flex flex-col gap-1.5 text-xs font-semibold text-foreground">
+                    New Password
+                    <div className="relative">
+                      <input
+                        required
+                        type={showRecoveryPassword ? "text" : "password"}
+                        value={newAdminPassword}
+                        onChange={(e) => setNewAdminPassword(e.target.value)}
+                        placeholder="Minimum 8 characters"
+                        className="h-11 w-full rounded-xl border border-input bg-background px-3.5 pr-10 text-xs font-normal text-foreground outline-none transition placeholder:text-muted-foreground/60 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRecoveryPassword(!showRecoveryPassword)}
+                        className="absolute right-3 top-3 text-muted-foreground hover:text-foreground cursor-pointer"
+                        aria-label={showRecoveryPassword ? "Hide password" : "Show password"}
+                      >
+                        {showRecoveryPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                      </button>
+                    </div>
+                  </label>
+
+                  <label className="flex flex-col gap-1.5 text-xs font-semibold text-foreground">
+                    Confirm New Password
+                    <input
+                      required
+                      type={showRecoveryPassword ? "text" : "password"}
+                      value={confirmAdminPassword}
+                      onChange={(e) => setConfirmAdminPassword(e.target.value)}
+                      placeholder="Confirm new password"
+                      className="h-11 w-full rounded-xl border border-input bg-background px-3.5 pr-10 text-xs font-normal text-foreground outline-none transition placeholder:text-muted-foreground/60 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                    />
+                  </label>
+
                   <button
-                    type="button"
-                    onClick={() => setShowLoginPassword(!showLoginPassword)}
-                    className="absolute right-3 top-3 text-muted-foreground hover:text-foreground cursor-pointer"
-                    aria-label={showLoginPassword ? "Hide password" : "Show password"}
+                    type="submit"
+                    disabled={recoveryLoading}
+                    className="mt-2 flex h-11 items-center justify-center gap-2 rounded-xl bg-primary text-xs font-semibold text-primary-foreground shadow-md shadow-primary/20 transition hover:bg-primary/90 disabled:opacity-75 cursor-pointer"
                   >
-                    {showLoginPassword ? (
-                      <EyeOff className="size-4" />
+                    {recoveryLoading ? (
+                      <span className="size-4 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
                     ) : (
-                      <Eye className="size-4" />
+                      <>
+                        <span>Reset Admin Password</span>
+                        <ArrowRight className="size-3.5" />
+                      </>
                     )}
                   </button>
-                </div>
-              </label>
 
-              <button
-                type="submit"
-                disabled={loginLoading}
-                className="mt-2 flex h-11 items-center justify-center gap-2 rounded-xl bg-primary text-xs font-semibold text-primary-foreground shadow-md shadow-primary/20 transition hover:bg-primary/90 disabled:opacity-75 cursor-pointer"
-              >
-                {loginLoading ? (
-                  <span className="size-4 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
-                ) : (
-                  <>
-                    <span>Authenticate as Administrator</span>
-                    <ArrowRight className="size-3.5" />
-                  </>
+                  <button
+                    type="button"
+                    onClick={() => setShowRecoveryForm(false)}
+                    className="text-[11px] font-semibold text-muted-foreground hover:text-foreground transition text-center cursor-pointer"
+                  >
+                    Return to Sign In
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <div>
+                <div className="mb-6">
+                  <h2 className="text-xl font-bold tracking-tight text-foreground">
+                    Sign in to Admin Console
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+                    This administrative console is strictly reserved for workspace administrators to manage invitations, team directories, and access policies.
+                  </p>
+                </div>
+
+                {/* Error Message */}
+                {loginError && (
+                  <div className="mb-5 rounded-xl border border-destructive/25 bg-destructive/10 p-3 text-xs font-medium text-destructive flex items-start gap-2">
+                    <ShieldAlert className="size-4 shrink-0 mt-0.5" />
+                    <span>{loginError}</span>
+                  </div>
                 )}
-              </button>
-            </form>
+
+                {/* Admin Login Form */}
+                <form onSubmit={handleAdminLogin} className="flex flex-col gap-4">
+                  <label className="flex flex-col gap-1.5 text-xs font-semibold text-foreground">
+                    Corporate administrator email
+                    <div className="relative">
+                      <Mail className="absolute left-3.5 top-3.5 size-4 text-muted-foreground pointer-events-none" />
+                      <input
+                        required
+                        type="email"
+                        value={loginEmail}
+                        onChange={(e) => setLoginEmail(e.target.value)}
+                        placeholder="admin@company.com"
+                        className="h-11 w-full rounded-xl border border-input bg-background pl-10 pr-3.5 text-xs font-normal text-foreground outline-none transition placeholder:text-muted-foreground/60 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                      />
+                    </div>
+                  </label>
+
+                  <label className="flex flex-col gap-1.5 text-xs font-semibold text-foreground">
+                    Master password
+                    <div className="relative">
+                      <LockKeyhole className="absolute left-3.5 top-3.5 size-4 text-muted-foreground pointer-events-none" />
+                      <input
+                        required
+                        type={showLoginPassword ? "text" : "password"}
+                        value={loginPassword}
+                        onChange={(e) => setLoginPassword(e.target.value)}
+                        placeholder="••••••••••••"
+                        className="h-11 w-full rounded-xl border border-input bg-background pl-10 pr-10 text-xs font-normal text-foreground outline-none transition placeholder:text-muted-foreground/60 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowLoginPassword(!showLoginPassword)}
+                        className="absolute right-3 top-3 text-muted-foreground hover:text-foreground cursor-pointer"
+                        aria-label={showLoginPassword ? "Hide password" : "Show password"}
+                      >
+                        {showLoginPassword ? (
+                          <EyeOff className="size-4" />
+                        ) : (
+                          <Eye className="size-4" />
+                        )}
+                      </button>
+                    </div>
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={loginLoading}
+                    className="mt-2 flex h-11 items-center justify-center gap-2 rounded-xl bg-primary text-xs font-semibold text-primary-foreground shadow-md shadow-primary/20 transition hover:bg-primary/90 disabled:opacity-75 cursor-pointer"
+                  >
+                    {loginLoading ? (
+                      <span className="size-4 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
+                    ) : (
+                      <>
+                        <span>Authenticate as Administrator</span>
+                        <ArrowRight className="size-3.5" />
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowRecoveryForm(true);
+                      setRecoveryEmail(loginEmail);
+                    }}
+                    className="text-[11px] font-semibold text-primary hover:underline cursor-pointer text-center"
+                  >
+                    Forgot admin password? Use recovery key
+                  </button>
+                </form>
+              </div>
+            )}
 
             {/* Context Navigation Links */}
             <div className="mt-6 pt-5 border-t border-border flex flex-col gap-2.5 text-center text-xs">
@@ -1210,7 +1485,7 @@ export default function AdminConsolePage() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto min-h-[220px]">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-border text-muted-foreground">
@@ -1271,14 +1546,57 @@ export default function AdminConsolePage() {
                               Workspace Owner
                             </span>
                           ) : (
-                            <button
-                              onClick={() => promptRemoveMember(member.id, member.name, member.email)}
-                              disabled={actionInProgress === member.id}
-                              className="inline-flex items-center gap-1 rounded-lg border border-destructive/20 bg-destructive/5 px-2.5 py-1 text-[11px] font-medium text-destructive hover:bg-destructive/15 transition disabled:opacity-50 cursor-pointer"
-                            >
-                              <Trash2 className="size-3" />
-                              <span>{actionInProgress === member.id ? "Removing..." : "Remove"}</span>
-                            </button>
+                            <div className="relative inline-block text-left">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setOpenMenuMemberId(
+                                    openMenuMemberId === member.id ? null : member.id
+                                  )
+                                }
+                                disabled={actionInProgress === member.id}
+                                className="size-8 inline-flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/80 transition cursor-pointer"
+                                aria-label="Member options"
+                              >
+                                <MoreVertical className="size-4" />
+                              </button>
+
+                              {openMenuMemberId === member.id && (
+                                <>
+                                  <div
+                                    className="fixed inset-0 z-30"
+                                    onClick={() => setOpenMenuMemberId(null)}
+                                  />
+                                  <div className="absolute right-0 top-full mt-1 w-44 rounded-xl border border-border bg-card p-1 shadow-xl z-40 animate-in fade-in zoom-in-95 duration-100">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenMenuMemberId(null);
+                                        handleResetUserPassword(member.id, member.email);
+                                      }}
+                                      disabled={actionInProgress === member.id}
+                                      className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-foreground hover:bg-muted transition text-left cursor-pointer"
+                                    >
+                                      <KeyRound className="size-3.5 text-muted-foreground" />
+                                      <span>Reset Password</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenMenuMemberId(null);
+                                        promptRemoveMember(member.id, member.name, member.email);
+                                      }}
+                                      disabled={actionInProgress === member.id}
+                                      className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-destructive hover:bg-destructive/10 transition text-left cursor-pointer"
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                      <span>Remove Member</span>
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
                           )}
                         </td>
                       </tr>

@@ -59,21 +59,22 @@ class EventManager:
             self._redis = None
 
     async def _subscribe_loop(self):
-        pubsub = self.redis.pubsub()
-        await pubsub.subscribe(REDIS_CHANNEL)
-        try:
-            async for message in pubsub.listen():
-                if message["type"] != "message":
-                    continue
-                try:
-                    envelope = json.loads(message["data"])
-                except (json.JSONDecodeError, TypeError):
-                    continue
-                await self._deliver_locally(envelope)
-        except asyncio.CancelledError:
-            pass
-        finally:
-            await pubsub.unsubscribe(REDIS_CHANNEL)
+        while True:
+            try:
+                pubsub = self.redis.pubsub()
+                await pubsub.subscribe(REDIS_CHANNEL)
+                async for message in pubsub.listen():
+                    if message["type"] != "message":
+                        continue
+                    try:
+                        envelope = json.loads(message["data"])
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    await self._deliver_locally(envelope)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                await asyncio.sleep(5)
 
     async def _deliver_locally(self, envelope: dict):
         target = envelope.get("target")
@@ -107,27 +108,39 @@ class EventManager:
     async def send_to_user(self, user_id: uuid.UUID, payload: dict):
         """Publish an event for a specific user. Delivered to that user's
         connections on whichever process they're connected to."""
-        await self.redis.publish(REDIS_CHANNEL, json.dumps({
+        envelope = {
             "target": "user",
             "user_id": str(user_id),
             "payload": payload,
-        }))
+        }
+        try:
+            await self.redis.publish(REDIS_CHANNEL, json.dumps(envelope))
+        except Exception:
+            await self._deliver_locally(envelope)
 
     async def broadcast_to_users(self, user_ids: list[uuid.UUID], payload: dict):
         """Publish an event for multiple specific users."""
-        await self.redis.publish(REDIS_CHANNEL, json.dumps({
+        envelope = {
             "target": "users",
             "user_ids": [str(uid) for uid in user_ids],
             "payload": payload,
-        }))
+        }
+        try:
+            await self.redis.publish(REDIS_CHANNEL, json.dumps(envelope))
+        except Exception:
+            await self._deliver_locally(envelope)
 
     async def broadcast_all(self, payload: dict):
         """Publish a synchronization signal to every connected client,
         across all processes."""
-        await self.redis.publish(REDIS_CHANNEL, json.dumps({
+        envelope = {
             "target": "all",
             "payload": payload,
-        }))
+        }
+        try:
+            await self.redis.publish(REDIS_CHANNEL, json.dumps(envelope))
+        except Exception:
+            await self._deliver_locally(envelope)
 
 
 event_manager = EventManager()

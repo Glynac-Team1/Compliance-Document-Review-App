@@ -1,3 +1,4 @@
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -502,3 +503,64 @@ async def remove_team_member(
     user.workspace_id = None
     await db.commit()
     return {"message": f"User {user.name} ({user.email}) has been removed from the workspace.", "id": str(user.id)}
+
+
+@router.post("/admin/team/{user_id}/reset-password")
+async def trigger_user_password_reset(
+    user_id: str,
+    admin: User = Depends(require_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin generates a single-use 24-hour reset link for a team member and dispatches an email."""
+    try:
+        member_uuid = uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user ID format.",
+        )
+
+    result = await db.execute(select(User).where(User.id == member_uuid))
+    target_user = result.scalar_one_or_none()
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Team member not found.",
+        )
+
+    if admin.workspace_id and target_user.workspace_id != admin.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot manage team members outside your workspace.",
+        )
+
+    workspace_name = "Northstar Compliance"
+    if target_user.workspace_id:
+        ws_result = await db.execute(select(Workspace).where(Workspace.id == target_user.workspace_id))
+        ws = ws_result.scalar_one_or_none()
+        if ws:
+            workspace_name = ws.name
+
+    raw_token = secrets.token_urlsafe(32)
+    target_user.reset_token = raw_token
+    target_user.reset_token_expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    await db.commit()
+
+    reset_url = f"{email_service.frontend_url}/reset-password?token={raw_token}"
+
+    dispatch_res = await email_service.send_password_reset_email(
+        recipient_email=target_user.email,
+        workspace_name=workspace_name,
+        reset_url=reset_url,
+    )
+
+    return {
+        "message": f"Password reset link generated for {target_user.email}.",
+        "email": target_user.email,
+        "reset_url": reset_url,
+        "token": raw_token,
+        "expires_at": target_user.reset_token_expires_at.isoformat(),
+        "email_sent": dispatch_res.success,
+        "delivery_mode": dispatch_res.mode,
+    }
+
