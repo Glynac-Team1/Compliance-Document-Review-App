@@ -415,7 +415,7 @@ function LoginContent() {
                   <button
                     type="button"
                     onClick={() =>
-                      toast.info("Password Assistance", "Please contact your workspace administrator to reset or update your password.")
+                      toast.info("Password Reset", "Please contact your administrator to receive a reset link.")
                     }
                     className="text-[11px] font-semibold text-primary hover:underline cursor-pointer"
                   >

@@ -1,4 +1,6 @@
 import re
+import secrets
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -302,6 +304,11 @@ async def create_new_workspace(req: CreateWorkspaceRequest, db: AsyncSession = D
         )
         db.add(admin_user)
 
+    initial_recovery_key = None
+    if not admin_user.recovery_key_hash:
+        initial_recovery_key = f"rec_{secrets.token_urlsafe(24)}"
+        admin_user.recovery_key_hash = hash_password(initial_recovery_key)
+
     await db.commit()
     await db.refresh(admin_user)
 
@@ -322,5 +329,85 @@ async def create_new_workspace(req: CreateWorkspaceRequest, db: AsyncSession = D
         "workspace_name": workspace.name,
         "workspace_slug": workspace.slug,
         "is_admin": True,
+        "recovery_key": initial_recovery_key,
         "message": f"Workspace '{workspace.name}' successfully created.",
+    }
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str
+
+
+@router.post("/reset-password")
+async def reset_password(req: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    """Public endpoint: Validates single-use reset token and updates user password."""
+    validate_password_strength(req.password)
+
+    clean_token = req.token.strip()
+    result = await db.execute(select(User).where(User.reset_token == clean_token))
+    user = result.scalar_one_or_none()
+
+    if not user or not user.reset_token_expires_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This password reset link is invalid. Please request a new link from your administrator.",
+        )
+
+    now = datetime.now(timezone.utc)
+    if user.reset_token_expires_at < now:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="This password reset link has expired. Please request a new link from your administrator.",
+        )
+
+    user.password_hash = hash_password(req.password)
+    user.reset_token = None
+    user.reset_token_expires_at = None
+    await db.commit()
+
+    return {
+        "success": True,
+        "message": "Password updated successfully. You can now sign in with your new password.",
+    }
+
+
+class AdminRecoveryRequest(BaseModel):
+    email: str
+    recovery_key: str
+    new_password: str
+
+
+@router.post("/admin/recover")
+async def admin_recovery(req: AdminRecoveryRequest, db: AsyncSession = Depends(get_db)):
+    """Master recovery key endpoint: Admin recovers access without email dependency."""
+    validate_password_strength(req.new_password)
+
+    clean_email = req.email.strip().lower()
+    clean_key = req.recovery_key.strip()
+
+    result = await db.execute(select(User).where(User.email == clean_email))
+    user = result.scalar_one_or_none()
+
+    if not user or not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid administrator credentials.",
+        )
+
+    if not user.recovery_key_hash or not verify_password(clean_key, user.recovery_key_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid master recovery key.",
+        )
+
+    new_recovery_key = f"rec_{secrets.token_urlsafe(24)}"
+    user.password_hash = hash_password(req.new_password)
+    user.recovery_key_hash = hash_password(new_recovery_key)
+    await db.commit()
+
+    return {
+        "success": True,
+        "message": "Admin password successfully updated.",
+        "new_recovery_key": new_recovery_key,
     }

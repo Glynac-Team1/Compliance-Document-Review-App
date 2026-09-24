@@ -277,5 +277,147 @@ class BrevoEmailService:
                 error=str(exc),
             )
 
+    async def send_password_reset_email(
+        self,
+        recipient_email: str,
+        workspace_name: str,
+        reset_url: str,
+    ) -> EmailDeliveryResult:
+        """Dispatches a clean password reset email via Brevo or fallback console logger."""
+        subject = f"Reset your password - {workspace_name}"
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Reset Your Password</title>
+  <style>
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+      margin: 0;
+      padding: 24px;
+    }}
+    .container {{
+      max-width: 520px;
+      margin: 0 auto;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 32px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+    }}
+    .title {{
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0 0 12px 0;
+      color: #0f172a;
+    }}
+    .text {{
+      font-size: 14px;
+      color: #475569;
+      line-height: 1.6;
+      margin: 0 0 24px 0;
+    }}
+    .btn {{
+      display: inline-block;
+      background-color: #2563eb;
+      color: #ffffff !important;
+      padding: 12px 24px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+    }}
+    .footer {{
+      font-size: 12px;
+      color: #94a3b8;
+      margin-top: 28px;
+      line-height: 1.5;
+    }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 class="title">Reset your password</h1>
+    <p class="text">Your administrator has generated a password reset link for your account in <strong>{workspace_name}</strong>.</p>
+    <a href="{reset_url}" class="btn" target="_blank">Set New Password</a>
+    <p class="footer">This single-use link expires in 24 hours. If you did not request a password reset, you can safely ignore this email.</p>
+  </div>
+</body>
+</html>"""
+
+        text_content = (
+            f"Reset your password - {workspace_name}\n\n"
+            f"Your administrator has generated a password reset link for your account.\n\n"
+            f"Click the link below to choose a new password (valid for 24 hours):\n"
+            f"{reset_url}\n\n"
+            f"If you did not request a password reset, you can safely ignore this email."
+        )
+
+        if not self.api_key or not self.sender_email:
+            logger.info(
+                "\n"
+                "======================== [LOCAL DEV RESET EMAIL] ========================\n"
+                f"To:          {recipient_email}\n"
+                f"Subject:     {subject}\n"
+                f"Reset Link:  {reset_url}\n"
+                "========================================================================="
+            )
+            return EmailDeliveryResult(
+                success=True,
+                mode="console",
+                message_id="console-dev-reset-fallback",
+            )
+
+        headers = {
+            "accept": "application/json",
+            "api-key": self.api_key,
+            "content-type": "application/json",
+        }
+        payload = {
+            "sender": {
+                "name": self.sender_name,
+                "email": self.sender_email,
+            },
+            "to": [
+                {
+                    "email": recipient_email,
+                    "name": recipient_email.split("@")[0],
+                }
+            ],
+            "subject": subject,
+            "htmlContent": html_content,
+            "textContent": text_content,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(BREVO_API_URL, headers=headers, json=payload)
+                if response.status_code in (200, 201):
+                    data = response.json()
+                    msg_id = data.get("messageId", "sent")
+                    logger.info(f"Dispatched Brevo password reset email to {recipient_email} (messageId: {msg_id})")
+                    return EmailDeliveryResult(
+                        success=True,
+                        mode="brevo",
+                        message_id=msg_id,
+                    )
+                else:
+                    error_text = response.text
+                    logger.error(f"Brevo API error on password reset ({response.status_code}): {error_text}")
+                    return EmailDeliveryResult(
+                        success=False,
+                        mode="brevo",
+                        error=f"Brevo HTTP {response.status_code}: {error_text}",
+                    )
+        except Exception as exc:
+            logger.error(f"Failed to connect to Brevo API on password reset: {exc}")
+            return EmailDeliveryResult(
+                success=False,
+                mode="brevo",
+                error=str(exc),
+            )
+
 
 email_service = BrevoEmailService()
