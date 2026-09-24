@@ -1,3 +1,4 @@
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -540,7 +541,6 @@ async def trigger_user_password_reset(
         if ws:
             workspace_name = ws.name
 
-    import secrets
     raw_token = secrets.token_urlsafe(32)
     target_user.reset_token = raw_token
     target_user.reset_token_expires_at = datetime.now(timezone.utc) + timedelta(hours=24)

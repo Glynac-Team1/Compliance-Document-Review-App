@@ -269,7 +269,6 @@ async def create_new_workspace(req: CreateWorkspaceRequest, db: AsyncSession = D
     slug = raw_slug
     ws_res = await db.execute(select(Workspace).where(Workspace.slug == slug))
     if ws_res.scalar_one_or_none():
-        import secrets
         slug = f"{raw_slug}-{secrets.token_hex(2)}"
         # Check again to guarantee uniqueness
         while True:

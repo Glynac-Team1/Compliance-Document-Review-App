@@ -73,7 +73,7 @@ class EventManager:
                     await self._deliver_locally(envelope)
             except asyncio.CancelledError:
                 break
-            except Exception as exc:
+            except Exception:
                 await asyncio.sleep(5)
 
     async def _deliver_locally(self, envelope: dict):

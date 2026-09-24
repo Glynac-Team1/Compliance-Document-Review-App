@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ShieldCheck,
@@ -73,7 +72,6 @@ interface CurrentUser {
 }
 
 export default function AdminConsolePage() {
-  const router = useRouter();
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
