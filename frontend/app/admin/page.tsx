@@ -25,6 +25,7 @@ import {
   AlertTriangle,
   RotateCcw,
   Loader2,
+  MoreVertical,
 } from "lucide-react";
 import { getApiBaseUrl, formatApiError } from "@/lib/api";
 
@@ -100,6 +101,7 @@ export default function AdminConsolePage() {
   const [role, setRole] = useState<"advisor" | "officer">("advisor");
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [team, setTeam] = useState<TeamMember[]>([]);
+  const [openMenuMemberId, setOpenMenuMemberId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
@@ -1485,7 +1487,7 @@ export default function AdminConsolePage() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto min-h-[220px]">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-border text-muted-foreground">
@@ -1546,24 +1548,56 @@ export default function AdminConsolePage() {
                               Workspace Owner
                             </span>
                           ) : (
-                            <div className="flex items-center justify-end gap-2">
+                            <div className="relative inline-block text-left">
                               <button
-                                onClick={() => handleResetUserPassword(member.id, member.email)}
+                                type="button"
+                                onClick={() =>
+                                  setOpenMenuMemberId(
+                                    openMenuMemberId === member.id ? null : member.id
+                                  )
+                                }
                                 disabled={actionInProgress === member.id}
-                                className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-muted transition disabled:opacity-50 cursor-pointer"
-                                title="Generate single-use password reset link"
+                                className="size-8 inline-flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/80 transition cursor-pointer"
+                                aria-label="Member options"
                               >
-                                <KeyRound className="size-3 text-muted-foreground" />
-                                <span>{actionInProgress === member.id ? "Sending..." : "Reset Password"}</span>
+                                <MoreVertical className="size-4" />
                               </button>
-                              <button
-                                onClick={() => promptRemoveMember(member.id, member.name, member.email)}
-                                disabled={actionInProgress === member.id}
-                                className="inline-flex items-center gap-1 rounded-lg border border-destructive/20 bg-destructive/5 px-2.5 py-1 text-[11px] font-medium text-destructive hover:bg-destructive/15 transition disabled:opacity-50 cursor-pointer"
-                              >
-                                <Trash2 className="size-3" />
-                                <span>{actionInProgress === member.id ? "Removing..." : "Remove"}</span>
-                              </button>
+
+                              {openMenuMemberId === member.id && (
+                                <>
+                                  <div
+                                    className="fixed inset-0 z-30"
+                                    onClick={() => setOpenMenuMemberId(null)}
+                                  />
+                                  <div className="absolute right-0 top-full mt-1 w-44 rounded-xl border border-border bg-card p-1 shadow-xl z-40 animate-in fade-in zoom-in-95 duration-100">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenMenuMemberId(null);
+                                        handleResetUserPassword(member.id, member.email);
+                                      }}
+                                      disabled={actionInProgress === member.id}
+                                      className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-foreground hover:bg-muted transition text-left cursor-pointer"
+                                    >
+                                      <KeyRound className="size-3.5 text-muted-foreground" />
+                                      <span>Reset Password</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenMenuMemberId(null);
+                                        promptRemoveMember(member.id, member.name, member.email);
+                                      }}
+                                      disabled={actionInProgress === member.id}
+                                      className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-destructive hover:bg-destructive/10 transition text-left cursor-pointer"
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                      <span>Remove Member</span>
+                                    </button>
+                                  </div>
+                                </>
+                              )}
                             </div>
                           )}
                         </td>
