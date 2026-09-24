@@ -389,7 +389,7 @@ class GeminiAssistEngine:
         ))
 
         last_error = None
-        for model in candidate_models:
+        for index, model in enumerate(candidate_models):
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
             try:
                 req = urllib.request.Request(
@@ -404,8 +404,25 @@ class GeminiAssistEngine:
                 return self._extract_gemini_text(res_body), model
             except urllib.error.HTTPError as e:
                 last_error = e
-                # If 404 (model not found), try next model in candidate list
-                if e.code == 404:
+                # Fall back to next model on 404 (not found), 503 (high demand), 429 (rate limited), or 5xx server errors
+                if index < len(candidate_models) - 1 and (e.code in {404, 429, 500, 502, 503, 504}):
+                    logger.warning(
+                        "Gemini model '%s' returned HTTP %s; falling back to candidate model '%s'",
+                        model,
+                        e.code,
+                        candidate_models[index + 1],
+                    )
+                    continue
+                raise
+            except (urllib.error.URLError, TimeoutError, socket.timeout, ConnectionError) as net_err:
+                last_error = net_err
+                if index < len(candidate_models) - 1:
+                    logger.warning(
+                        "Gemini model '%s' encountered network/timeout error (%s); falling back to candidate model '%s'",
+                        model,
+                        net_err,
+                        candidate_models[index + 1],
+                    )
                     continue
                 raise
             except (json.JSONDecodeError, KeyError, IndexError, TypeError) as error:

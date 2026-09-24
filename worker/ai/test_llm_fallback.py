@@ -169,6 +169,28 @@ class TestLLMFallbackEngine(unittest.TestCase):
         with self.assertRaises(ValueError):
             GeminiAssistEngine._extract_openrouter_text({"choices": []})
 
+    def test_gemini_candidate_model_fallback_on_503(self):
+        """Verifies that if primary Gemini model returns 503 or transient error, candidate models (e.g. gemini-2.5-flash) are tried."""
+        import urllib.error
+        engine = GeminiAssistEngine(api_key="gemini_key", provider="gemini")
+        payload = {"contents": [{"parts": [{"text": "test"}]}]}
+
+        def mock_execute(req, timeout=20):
+            if "gemini-3.6-flash" in req.full_url:
+                raise urllib.error.HTTPError(
+                    url=req.full_url, code=503, msg="Service Unavailable", hdrs={}, fp=None
+                )
+            return {
+                "candidates": [
+                    {"content": {"parts": [{"text": self.mock_json_response}]}}
+                ]
+            }
+
+        with patch("worker.ai.gemini_assist._execute_request_with_retry", side_effect=mock_execute):
+            text, model = engine._call_gemini_api(payload)
+            self.assertEqual(model, "gemini-2.5-flash")
+            self.assertEqual(text, self.mock_json_response)
+
 
 if __name__ == "__main__":
     unittest.main()
