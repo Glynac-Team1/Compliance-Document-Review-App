@@ -13,7 +13,7 @@ See also: [`docs/technical-implementation-plan.md`](./docs/technical-implementat
 | Team Member | Track | Specialization & Key Responsibilities |
 |---|---|---|
 | **Basamsetti Venkata Vamsi** | **AI Engineering** | Ordered custom-regex PII masking, prompt engineering, structured JSON schema enforcement, and third-party LLM integrations (Gemini / Groq). |
-| **Kashish Agarwal** | **Backend Engineering** | FastAPI REST endpoints, multi-tenant workspace architecture, session/role auth enforcement (server-side 403 gates), document lifecycle state machine, and Celery/Redis background task orchestration. |
+| **Kashish Agarwal/Daniel Ojo** | **Backend Engineering** | FastAPI REST endpoints, multi-tenant workspace architecture, session/role auth enforcement (server-side 403 gates), document lifecycle state machine, and Celery/Redis background task orchestration. |
 | **Daniel Ojo** | **Frontend Engineering** | Next.js 16 App Router + TypeScript SPA, split-pane review interface, Server-Sent Events (SSE) live sync, two-stage document upload modal with toast validation, and dedicated institutional Admin Console. |
 | **Jemarco Briz** | **Data Engineering** | Format-aware text extraction (PDF/DOCX/XLSX), local vector embeddings (`BAAI/bge-base-en-v1.5`), `pgvector` HNSW index architecture, and the 3-phase retrieval engine. |
 | **Cross-Track / Shared** | **DevOps & Platform** | Docker Compose orchestration, automated Alembic migrations & seeding, environment controls, and GitHub Actions CI pipelines. |
