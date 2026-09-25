@@ -1,363 +1,417 @@
 # Compliance Document Review App
 
-A multi-tenant institutional web application that replaces ad-hoc financial compliance review with a shared, tenant-isolated queue, recorded audit events, and an AI assist panel that flags regulatory concerns (missing disclosures, misleading claims, fee schedule discrepancies, missing signatures) without ever automating the decision. The human compliance officer always makes the final call.
+A workspace-based compliance review system for financial documents. The application combines document intake, invitation-based onboarding, and asynchronous AI-assisted review with a required human decision by the Compliance Officer.
 
-Built across five tracks: Backend, Frontend, AI, Data Engineering, DevOps/Platform.
+This project is designed for teams that need a practical review workflow: an admin creates a workspace, invites members, a financial advisor uploads a document, and a compliance officer reviews AI-generated findings before making the final decision.
 
-See also: [`docs/technical-implementation-plan.md`](./docs/technical-implementation-plan.md) for detailed per-track scope, and [`docs/architecture.md`](./docs/architecture.md) for system and data/AI diagrams.
+## Live Demo
 
----
+Open the deployed application here:
 
-## Engineering Team & Core Track Ownership
+- https://compliance-document-review-app-seven.vercel.app/
 
-| Team Member | Track | Specialization & Key Responsibilities |
-|---|---|---|
-| **Basamsetti Venkata Vamsi** | **AI Engineering** | Ordered custom-regex PII masking, prompt engineering, structured JSON schema enforcement, and third-party LLM integrations (Gemini / Groq). |
-| **Kashish Agarwal/Daniel Ojo** | **Backend Engineering** | FastAPI REST endpoints, multi-tenant workspace architecture, session/role auth enforcement (server-side 403 gates), document lifecycle state machine, and Celery/Redis background task orchestration. |
-| **Daniel Ojo** | **Frontend Engineering** | Next.js 16 App Router + TypeScript SPA, split-pane review interface, Server-Sent Events (SSE) live sync, two-stage document upload modal with toast validation, and dedicated institutional Admin Console. |
-| **Jemarco Briz** | **Data Engineering** | Format-aware text extraction (PDF/DOCX/XLSX), local vector embeddings (`BAAI/bge-base-en-v1.5`), `pgvector` HNSW index architecture, and the 3-phase retrieval engine. |
-| **Cross-Track / Shared** | **DevOps & Platform** | Docker Compose orchestration, automated Alembic migrations & seeding, environment controls, and GitHub Actions CI pipelines. |
+For deeper implementation details, see [docs/architecture.md](docs/architecture.md) and [docs/technical-implementation-plan.md](docs/technical-implementation-plan.md).
 
 ---
 
-## Core Capabilities & Security Invariants
+## Overview
 
-- **Multi-Tenant Isolation**: Every document, review, audit log, and user is strictly partitioned by `workspace_id`. Cross-tenant data access is blocked by server-side 403 authorization gates.
-- **Invite-First Zero-Trust Onboarding**: Open self-registration into roles is disabled. Workspace Administrators issue single-use cryptographic invitation tokens (7-day TTL) to onboard Financial Advisors and Compliance Officers.
-- **Single Administrator Architecture**: Guaranteed by PostgreSQL database-level constraints (`uq_workspace_single_admin` partial unique index and `chk_admin_must_be_officer` check constraint).
-- **Two-Stage Document Upload with Toast Validation**: Advisors receive upfront guidance on accepted formats (PDF, DOCX, XLSX) and 10 MB limits, immediate non-blocking toast validation on file selection, and a verified pre-submission confirmation screen.
-- **Review Concurrency Locking**: Compliance officers acquire atomic claims (`POST /documents/{id}/claim`) on queue items, preventing race conditions or duplicate reviews across officers.
-- **PII-Masked AI Assist**: All document text is masked by the worker's ordered custom-regex masker **before** sending to any external LLM provider (Google Gemini or Groq). Reverse mappings remain server-side.
-- **Audit Trail**: Status transitions, claims, officer decisions, and revision resubmissions are recorded with user identity and timestamp.
+This application helps organizations review uploaded compliance documents in a structured, role-based workflow. It is not intended to replace human judgment: the AI helps flag issues, but the Compliance Officer remains responsible for the final approval, rejection, or revision decision.
+
+The system includes:
+
+- workspace and member management
+- document upload and tracking
+- role-based access for Admin, Financial Advisor, and Compliance Officer
+- asynchronous document analysis through a background worker
+- retrieval-augmented compliance checks against rules and precedents
+- audit trails, notifications, and review-state tracking
+
+The product is oriented toward a realistic internal review process rather than a fully autonomous AI reviewer.
 
 ---
 
-## System Architecture & Current App Flow
+## Key Features
 
-The application enforces a **Zero-Trust Multi-Tenant Architecture** where open self-registration into roles is disabled, preventing cross-tenant document exposure. Every document, review, audit log entry, and user account is strictly scoped by `workspace_id`.
+- Workspace creation and multi-member onboarding
+- Role-based access for administrators, advisors, and officers
+- Email-based invitation flow using Brevo, with a direct invite-link fallback when email delivery fails
+- Secure registration after invitation acceptance
+- Financial Advisor upload of PDF, DOCX, and XLSX files
+- Compliance Officer dashboard with review queue and document lock/claim workflow
+- Asynchronous AI analysis in the background
+- RAG-based retrieval of policy/rule context and precedents
+- PII masking before outbound AI requests
+- Structured findings and summary output for human review
+- Audit trail, notifications, and document revision tracking
+- Graceful degraded states when analysis fails or required context is unavailable
+
+---
+
+## User Guide
+
+This is the core workflow of the application, in the order a real user would experience it.
+
+### 1. Create a Workspace
+
+The workspace administrator creates a workspace for the organization and becomes the designated workspace admin. This establishes the tenant boundary for members, documents, and review activity.
+
+From the app, the admin creates the workspace and sets the initial administrative account.
+
+### 2. Invite Members
+
+Once the workspace exists, the admin invites members by email. The application uses Brevo for transactional invitation emails, but it also exposes a direct invite link as a fallback when email delivery is not successful.
+
+The invitation is role-scoped:
+
+- Financial Advisor
+- Compliance Officer
+
+The backend stores an invitation token with a short expiry window and returns a direct link that can be copied and shared manually if email delivery fails.
+
+### 3. Accept the Invitation
+
+The invited person receives the invite and opens the link. The app validates the token and confirms the target workspace and role before continuing.
+
+### 4. Register an Account
+
+After accepting the invitation, the user creates their account and password. The system binds them to the assigned workspace and role, rather than allowing open self-registration into a workspace.
+
+### 5. Upload a Compliance Document
+
+The Financial Advisor uploads a compliance document from their workspace dashboard. Supported formats are PDF, DOCX, and XLSX, with a practical file-size limit enforced by the application.
+
+Once the file is submitted, it is stored and queued for AI-assisted review. The advisor can later track the status of the document through the workspace.
+
+### 6. Review the Document
+
+The Compliance Officer sees the uploaded document on the Officer Dashboard. They can view the queue, select a document, and claim it before reviewing to avoid duplicate review activity.
+
+When the officer clicks Review, the app opens the document together with the AI-generated findings and analysis summary.
+
+### 7. AI Analysis
+
+The analysis runs asynchronously in the background. The worker extracts text, masks personal information, chunks the text, retrieves relevant compliance rules and prior context, and calls the LLM with masked content plus retrieved context.
+
+The output is presented as decision support to the officer. It helps highlight policy concerns, missing disclosures, and other issues, but it does not make the final compliance decision.
+
+### 8. Manual Decision
+
+The Compliance Officer manually reviews the AI output, checks the original document, and records the final decision:
+
+- Approve
+- Reject
+- Needs Revision
+
+This final decision is the action that matters. The AI supports the review process; the human reviewer makes the binding call.
+
+---
+
+## AI Analysis Examples
+
+The system analyzes uploaded compliance documents and produces findings that help the Compliance Officer review the document faster and with more context.
+
+### Compliant Document
+
+This example shows an AI-assisted review of a document that does not raise significant compliance issues.
+
+![Compliant document AI analysis example](docs/compliant-ai-output-sample.png)
+
+*Example output for a compliant document: the AI summary and issue list remain limited or empty when the content aligns with the expected compliance context.*
+
+### Non-Compliant Document
+
+This example shows a document with likely compliance concerns that the officer should review manually.
+
+![Non-compliant document AI analysis example](docs/non-compliant-ai-output-sample.png)
+
+*Example output for a non-compliant document: the AI flags missing disclosures, policy mismatches, or risky wording that requires human review and final judgment.*
+
+---
+
+## How It Works
+
+The application follows a straightforward workflow from onboarding to final decision.
 
 ```mermaid
-flowchart TD
-    subgraph Onboarding["1. Tenant Provisioning & Zero-Trust Onboarding"]
-        Register["Org Creator Registers<br/>(Sets Company Name & Admin Credentials)"] --> Workspace["Workspace Initialized<br/>(Single Admin Invariant Enforced)"]
-        Workspace --> AdminConsole["Admin Console (/admin)<br/>(Issues Single-Use Role Invitations)"]
-        AdminConsole --> Invite["Invite Token (7-Day TTL)<br/>/accept-invite?token=..."]
-        Invite --> MemberJoin["Member Sets Password & Joins<br/>(Assigned Role: Advisor or Officer)"]
+flowchart LR
+    A[Admin creates workspace] --> B[Admin invites member]
+    B --> C[Member accepts invite]
+    C --> D[Member registers account]
+    D --> E[Advisor uploads document]
+    E --> F[Document enters review queue]
+    F --> G[Officer clicks Review]
+    G --> H[Background worker analyzes document]
+    H --> I[Rules + precedents retrieval]
+    I --> J[AI summary and findings]
+    J --> K[Officer makes final decision]
+
+    subgraph Backend
+        F --> L[(PostgreSQL + pgvector)]
+        E --> M[(MinIO object storage)]
+        H --> N[Celery worker]
+        N --> I
     end
 
-    subgraph AdvisorFlow["2. Advisor Workflow"]
-        MemberJoin -.->|Advisor| AdvSpace["Advisor Workspace (/advisor)"]
-        AdvSpace --> UploadModal["Two-Stage Upload Modal<br/>(Guidance: PDF/DOCX/XLSX, 10 MB Limit)"]
-        UploadModal --> ToastValidation["Client-Side Toast Validation<br/>(Immediate Feedback, Zero Bad Submissions)"]
-        ToastValidation --> Staging["Confirmation Screen<br/>(Size, Format Tag, Verified Status)"]
-        Staging --> DocSubmit["Submit Document<br/>POST /documents"]
-    end
-
-    subgraph Processing["3. Async Ingestion & Masking Pipeline"]
-        DocSubmit --> RedisQueue["Redis Task Queue"]
-        RedisQueue --> CeleryWorker["Celery Worker"]
-        CeleryWorker --> Extract["Text Extraction<br/>(pdfplumber / XML ZIP / openpyxl)"]
-        Extract --> Mask["PII Masker (Ordered Regex)<br/>Masks Client Info Before Any LLM Call"]
-        Mask --> Embed["Vector Embeddings (Local bge-base)"]
-        Embed --> PGVector["pgvector Similarity Search<br/>(Retrieves Applicable Policy Rules)"]
-        PGVector --> LLM["LLM Analysis (Gemini / Groq)<br/>(Generates Regulatory Flags)"]
-    end
-
-    subgraph OfficerFlow["4. Compliance Officer Workflow"]
-        MemberJoin -.->|Officer| OffSpace["Compliance Workspace (/compliance-officer)"]
-        OffSpace --> SSEStream["Live SSE Sync<br/>(/notifications/stream)"]
-        SSEStream --> Queue["Filterable Review Queue<br/>(Unreviewed / Claimed / Reviewed)"]
-        Queue --> ClaimDoc["Claim Document Lock<br/>POST /documents/{id}/claim"]
-        ClaimDoc --> SplitPane["Split-Pane Review Interface<br/>(Original Document Preview + AI Flags Panel)"]
-        SplitPane --> Decision["Officer Final Decision<br/>Approve · Reject · Needs Revision"]
-        Decision --> AuditLog["Audit Events<br/>(Timestamp, Officer ID, Comment)"]
-        Decision -.->|If Needs Revision| AdvSpace
+    subgraph AI
+        I --> O[LLM analysis]
+        O --> J
     end
 ```
 
----
+At a system level, the flow is:
 
-## Key Application Flows
-
-### 1. Organization & Workspace Provisioning
-- **Self-Contained Tenancy**: When an organization registers (`POST /api/auth/workspace`), a unique workspace is provisioned with an isolated domain slug.
-- **Single Administrator Architecture**: The organization creator is initialized as the workspace's sole **Workspace Administrator** (`is_admin = True`, `role = officer`).
-- **Database Engine Invariants**:
-  - `uq_workspace_single_admin`: PostgreSQL partial unique index guaranteeing at the database engine level that no workspace can ever contain more than one administrator.
-  - `chk_admin_must_be_officer`: PostgreSQL check constraint guaranteeing that Financial Advisors (`role = advisor`) can physically never hold administrator privileges.
-
-### 2. Zero-Trust Team Onboarding (Invite-First)
-- **Open Registration Disabled**: To prevent unauthorized users from registering and reading confidential customer documents across companies, open self-registration into roles is disabled.
-- **Invite Generation**: Administrators navigate to `/admin` to issue role-scoped invitations (`POST /admin/invitations`) for either **Financial Advisors** or **Compliance Officers**.
-- **Single-Use Secure Tokens**: Invitations generate cryptographic single-use tokens with a 7-day TTL.
-- **Acceptance Flow**: Prospective team members visit `http://localhost:3000/accept-invite?token=...`, set their account password, and join their organization with standard member access (`is_admin = False`).
-- **Administrative Lifecycle**: Administrators track pending invitations, view generated invite links, and revoke outstanding invitations directly from the Admin Console.
-
-### 3. Financial Advisor Document Submission
-- **Two-Stage Upload Modal**:
-  - **Upfront Format Guidance**: Prior to file selection, advisors see explicit guidance for supported formats: **PDF (`.pdf`)**, **Word (`.docx`)**, and **Excel (`.xlsx`)**, along with a **10 MB maximum file size cap** and a tenant-encryption badge.
-  - **Immediate Client-Side Toast Validation**: If an unsupported extension or a file exceeding 10 MB is selected or dropped, the app immediately fires a non-intrusive `toast.error` notification and resets the file input—preventing invalid files from staging.
-  - **Confirmation Screen**: Staged files display a confirmation card showing the file icon, file name, formatted size (e.g. `2.45 MB`), format badge, and a verified readiness checkmark before submission.
-- **Audit & Revision Resubmissions**: If an officer marks a document as **Needs Revision**, the advisor can resubmit an updated file. The new version is linked to the previous document, maintaining a continuous audit thread.
-
-### 4. Compliance Officer Review & Concurrency Control
-- **Shared, Real-Time Review Queue**: Officers monitor an active review queue updated in real time via Server-Sent Events (SSE).
-- **Concurrency Locking (Claims)**: Before beginning a review, an officer claims the document (`POST /documents/{id}/claim`). This places an atomic claim lock on the record, preventing multiple compliance officers from reviewing or deciding the same submission concurrently.
-- **Split-Pane Review Interface**:
-  - **Left Pane**: Document viewer with metadata (advisor name, submission timestamp, document version).
-  - **Right Pane**: AI Assist Panel detailing automated regulatory checks, flagged issues, and policy rule citations.
-  - **Degraded AI Handling**: Extraction, storage, embedding, retrieval, and LLM failures are persisted with structured error codes and safe user messages. Officers can still complete manual reviews.
-- **Human-in-the-Loop Decisions**: The officer records a binding decision (**Approve**, **Reject**, or **Needs Revision**) with mandatory audit reasoning.
-
-### 5. Dedicated Institutional Admin Console (`/admin`)
-- **Role-Gated Access**: Restricted strictly to authenticated Workspace Administrators (`is_admin = True`). Standard members attempting access are redirected.
-- **Dynamic Team Directory**: Displays real-time workspace statistics (Total Members, Compliance Officers, Financial Advisors, Pending Invitations).
-- **Access Level Enforcement**: Members are clearly demarcated as **Workspace Administrator** (with access badge and key icon) or **Member**.
-- **Secure Member Removal**: Administrators can remove members from the workspace; confirmation is handled cleanly with non-blocking toast notifications.
+Frontend → API → PostgreSQL / object storage → Celery worker → retrieval + policy context → LLM analysis → stored results → Compliance Officer review
 
 ---
 
-## Tech Stack
+## RAG / AI Pipeline
 
-| Layer | Stack |
-|---|---|
-| Frontend | Next.js 16 App Router + TypeScript, Tailwind CSS v4, Lucide React, Vitest, Server-Sent Events (SSE) |
-| Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 (async), Alembic, Celery + Redis |
-| Database | PostgreSQL 16 + `pgvector` (HNSW index) |
-| Storage | MinIO (S3-compatible bucket storage for raw documents) |
-| AI | Gemini API (Google AI Studio free tier) or Groq — no production Anthropic credits |
-| PII Masking | Ordered custom regex masker with server-side reverse mappings |
-| Embeddings | Local `sentence-transformers` (`BAAI/bge-base-en-v1.5`, 768 dimensions) — never sent to a third party |
-| Infra | Docker Compose v2, GitHub Actions CI |
+The AI pipeline is implemented as a retrieval-augmented compliance review workflow.
 
-### Frontend & Real-Time Architecture Highlights
+1. Document extraction: PDF, DOCX, and XLSX files are converted into text.
+2. PII masking: names, emails, phone numbers, account identifiers, and monetary values are masked before any external LLM request.
+3. Chunking and embedding: the masked text is broken into chunks and encoded with a local embedding model.
+4. Vector retrieval: the system searches relevant compliance rules, disclosures, and precedent content from the database/vector store.
+5. Compliance context assembly: the most relevant retrieved context is passed alongside the document text.
+6. LLM analysis: the model produces a structured summary and flagged findings.
+7. Output validation: the result is validated against a schema before being stored.
+8. Result persistence: the analysis summary and findings are saved for the officer review interface.
 
-- **Next.js 16 App Router**: Component-driven architecture built with strict TypeScript enforcement (`tsc --noEmit`).
-- **Server-Sent Events (SSE) Live Sync**: Native real-time streaming via `useLiveSync` connecting to `/notifications/stream`, refreshing notifications and queue/review state events with automatic reconnects.
-- **Resilient AI Degradation**: Explicit UI handling for pending and failed analyses. API responses expose `error_code`, `user_facing_error`, and `manual_review_required`, allowing officers to proceed with manual reviews uninterrupted.
-- **Institutional Toast System**: Non-blocking, accessible visual feedback mounted globally at root layout (`frontend/components/Toast.tsx`), replacing default browser alerts with professional status messaging.
-- **Internal Routing Protection**: Endpoints and slugs (e.g. `/{role}/{slug}`) are encapsulated within user navigation components, preventing exposure of internal routing paths.
-- **Testing & Verification**: Vitest and `@testing-library/react` test suites verifying component resilience and degraded state handling (`frontend/__tests__/degraded-state.test.tsx`), accompanied by ESLint flat config.
-
-Full rationale for each choice is in [`docs/technical-implementation-plan.md §4`](./docs/technical-implementation-plan.md#4-tech-stack-by-track).
-
-## Continuous Integration and Branch Protection
-
-The repository CI workflow runs for pull requests targeting `main` and for pushes to
-`main`. It validates Python linting, Alembic migrations against temporary PostgreSQL
-and pgvector, backend and worker tests, frontend linting/type checking/tests/build,
-and all application Docker images through Compose.
-
-See [`docs/ci-cd.md`](./docs/ci-cd.md) for the feature-branch workflow, the exact
-local validation commands, required branch protection settings, and the checks that
-must pass before merging. There is no deployment workflow until a production hosting
-target and its protected credentials are established.
+This is designed to support the officer, not replace their decision-making.
 
 ---
 
-## Getting Started
+## Technology Stack
 
-This project is designed to run with Docker Compose so every teammate uses the same
-PostgreSQL, Redis, backend, worker, and frontend versions.
+| Technology | Purpose |
+| --- | --- |
+| Next.js 16 | Frontend application and dashboard experience |
+| TypeScript | Frontend type safety |
+| FastAPI | Backend REST API |
+| SQLAlchemy | Async database access and ORM model layer |
+| PostgreSQL + pgvector | Relational storage and vector similarity search |
+| Redis | Queueing and async task coordination |
+| Celery | Background document analysis processing |
+| MinIO | Object storage for uploaded documents |
+| Docker Compose | Local development environment |
+| Brevo API | Transactional invitation emails |
+| Gemini / Groq / OpenRouter | Optional LLM providers for AI analysis |
+| PII masking utilities | Privacy protection before AI processing |
+| Vitest + ESLint | Frontend validation |
+| Pytest + Ruff | Backend and worker validation |
+
+---
+
+## Project Architecture
+
+The repository is separated into a few clear layers:
+
+- frontend/: Next.js app for admin, advisor, and compliance-officer views
+- backend/: FastAPI application, auth, API routes, database models, and security logic
+- worker/: Celery worker and AI/data engineering components for document analysis
+- models/: shared database models and schema definitions
+- docs/: architecture and process documentation
+- docker-compose.yml: application stack for local development
+
+The backend and frontend enforce role boundaries and workspace scoping, while the worker handles asynchronous analysis work. The same document and review data is shared across the user-facing workflows without bypassing the API-level authorization checks.
+
+---
+
+## Local Development
 
 ### Prerequisites
 
-Install the following on your laptop:
-
 - Git
 - Docker Engine or Docker Desktop with Compose v2
-- At least 4 GB of available memory for the containers
-- An LLM API key for AI features. Google AI Studio/Gemini is the recommended provider.
+- At least 4 GB of RAM available for containers
+- An LLM API key if you want AI analysis enabled locally
 
-Check the installations:
-
-```bash
-git --version
-docker --version
-docker compose version
-```
-
-### 1. Clone the repository
-
-Replace `<repository-url>` with the repository URL provided by the team:
+### Clone and Configure
 
 ```bash
 git clone <repository-url>
 cd Compliance-Document-Review-App
 ```
 
-### 2. Create the local environment file
-
-Create a local `.env` file; never commit it or put real API keys in source files.
-The Compose file provides development defaults for database, Redis, and MinIO.
-
-Set at least these values in `.env`:
+Create a `.env` file with the required values for local development:
 
 ```dotenv
-LLM_API_KEY=your-provider-api-key
-LLM_PROVIDER=gemini
 SESSION_SECRET=replace-with-a-long-random-value
 OFFICER_SIGNUP_CODE=replace-with-a-strong-one-time-code
+LLM_API_KEY=your-provider-key
+LLM_PROVIDER=gemini
+BREVO_API_KEY=
+BREVO_SENDER_EMAIL=no-reply@example.com
+BREVO_SENDER_NAME="Northstar Compliance"
+FRONTEND_URL=http://localhost:3000
+PUBLIC_STORAGE_URL=http://localhost:9000
 ```
 
-Supported provider values are `gemini` and `groq`. Leave `LLM_API_KEY` empty when
-working only on the non-AI scaffold; the API can still start, but AI analysis will
-not be available.
-Use a private value for `OFFICER_SIGNUP_CODE`; it is required when creating a
-compliance officer account and should be changed from the local development value
-before sharing or deploying the environment.
+Notes:
 
-The Compose file supplies the container-internal database and Redis URLs. Do not
-replace `DATABASE_URL` with `localhost` for the Docker workflow: inside the backend
-container, the database hostname is `postgres` and the Redis hostname is `redis`.
+- `LLM_API_KEY` is optional if you only want the non-AI scaffold to run.
+- `OFFICER_SIGNUP_CODE` is required for creating a compliance officer account in the local environment.
+- The Compose file provides local database, Redis, and MinIO defaults.
 
-### 3. Start the complete environment
-
-Build the images and start all services:
+### Start the App
 
 ```bash
 docker compose up --build
 ```
 
-The first run downloads the base images and Python/Node dependencies and may take a
-few minutes. Keep this terminal open to see application logs. To start in the
-background instead:
+This starts the PostgreSQL, Redis, MinIO, backend, worker, and frontend containers. The backend container runs Alembic migrations before starting, and the worker waits for services to become healthy before beginning analysis work.
 
-```bash
-docker compose up --build -d
-docker compose logs -f backend
-```
+### Health Check and Access
 
-The backend waits for healthy Postgres, Redis, and MinIO services. Its entrypoint runs
-`alembic upgrade head` before starting Uvicorn. The worker waits for the backend
-healthcheck, then seeds rules and precedents before starting Celery; it does not run
-migrations.
-
-### 4. Application Endpoints & Ports
-
-Once the containers are running, the application exposes the following endpoints:
-
-| Service | URL | Purpose | Access & Credentials |
-|---|---|---|---|
-| **Frontend Application** | <http://localhost:3000> | Next.js Web Interface | Public entry / login |
-| **Workspace Admin Console** | <http://localhost:3000/admin> | Team directory & invite-first onboarding | Requires Workspace Administrator session |
-| **Financial Advisor Workspace** | <http://localhost:3000/advisor> | Document upload, tracking & revisions | Requires Financial Advisor session |
-| **Compliance Officer Workspace** | <http://localhost:3000/compliance-officer> | Review queue, AI assist & decisions | Requires Compliance Officer session |
-| **Backend REST API** | <http://localhost:8000> | FastAPI API server | Gated with session Bearer auth |
-| **Interactive API Documentation** | <http://localhost:8000/docs> | Swagger UI for exploring all endpoints | Open in browser |
-| **API Health Check** | <http://localhost:8000/health> | Backend readiness endpoint | Returns `{"status":"ok"}` |
-| **MinIO Object Storage Console** | <http://localhost:9001> | Raw file bucket management | `minioadmin` / `minioadmin` |
-| **PostgreSQL Database** | `localhost:5433` | PostgreSQL 16 + `pgvector` | `compliance` / `compliance` |
-
-Verify the backend from a terminal:
+Check the API:
 
 ```bash
 curl http://localhost:8000/health
 ```
 
 Expected response:
+
 ```json
 {"status":"ok"}
 ```
 
----
+Open these in a browser:
 
-### 5. Running Verification & Automated Tests
+- Frontend: http://localhost:3000
+- Admin: http://localhost:3000/admin
+- Advisor workspace: http://localhost:3000/advisor
+- Compliance Officer workspace: http://localhost:3000/compliance-officer
+- API docs: http://localhost:8000/docs
 
-#### Backend Automated Test Suite
-Run the backend test suite (covering multi-tenant admin security, role boundaries,
-claim concurrency, invite-first flows, and notifications) inside the Docker container:
+### Manual Database / Migration Notes
 
-```bash
-docker compose exec -T backend sh -lc 'PYTHONPATH=/app pytest -q tests'
-```
-
-#### Frontend TypeScript Verification & Tests
-Verify strict TypeScript compilation with zero errors across all components:
+If running the backend outside Docker, the project expects PostgreSQL and Redis to be available. The repository docs include checks such as:
 
 ```bash
-docker compose exec -T frontend npx tsc --noEmit
-```
-
-Run frontend unit and component tests:
-
-```bash
-docker compose exec -T frontend npm test -- --run
-
-#### Worker extraction and AI tests
-
-```bash
-docker compose exec -T worker pytest -q worker/data_eng worker/ai
-```
-
-These tests cover format-specific extraction, scanned/corrupted/empty files,
-fail-closed PDF handling, privacy masking, retrieval failures, structured error
-persistence, and LLM fallback behavior.
+export DATABASE_URL=postgresql+asyncpg://compliance:compliance@127.0.0.1:5432/compliance_review
+export REDIS_URL=redis://127.0.0.1:6379/0
+export SESSION_SECRET=local-only-session-secret
+export OFFICER_SIGNUP_CODE=local-only-officer-code
+export ENVIRONMENT=test
+export PYTHONPATH=backend
+python -m alembic upgrade head
 ```
 
 ---
 
-### Database Migrations & Invariants
+## Deployment
 
-Database schemas and constraints are managed through Alembic. When the backend container boots, it automatically applies all pending migrations.
+The project is live and available here:
 
-Key architectural migrations:
-- `c7a8b9d0e1f2_add_workspaces_and_invitations.py`: Establishes the multi-tenant schema with `workspaces` and `invitations` tables, linking documents, users, and audit logs by `workspace_id`.
-- `f1a2b3c4d5e6_enforce_single_workspace_admin.py`: Enforces single administrator integrity via `uq_workspace_single_admin` partial unique index and role invariants (`chk_admin_must_be_officer`).
-- `9e7f6a1b2c3d_add_structured_analysis_errors.py`: Adds persisted `error_code`, `user_facing_error`, and `technical_error` fields to `AIAnalysis`.
+- https://compliance-document-review-app-seven.vercel.app/
 
-To manually run migrations inside the backend container:
+The repository also includes local Docker-based development and CI validation for running the app and testing it in a local environment.
+
+---
+
+## Testing
+
+The repository includes both backend/worker tests and frontend tests.
+
+### Python tests
 
 ```bash
-docker compose exec -T backend alembic upgrade head
+PYTHONPATH=backend python -m pytest backend/tests worker/ai worker/data_eng -v
+```
+
+### Frontend checks
+
+From the frontend directory:
+
+```bash
+cd frontend
+npm ci
+npm run lint
+npx tsc --noEmit
+npm test
+npm run build
+```
+
+The project also includes CI checks for linting, migrations, Docker validation, and frontend build/test validation. See [docs/ci-cd.md](docs/ci-cd.md) for the full local validation workflow.
+
+---
+
+## Project Structure
+
+```text
+.
+├── backend/
+│   ├── app/
+│   ├── alembic/
+│   ├── models/
+│   └── tests/
+├── frontend/
+│   ├── app/
+│   ├── components/
+│   └── lib/
+├── worker/
+│   ├── ai/
+│   ├── data_eng/
+│   └── scripts/
+├── docs/
+├── docker-compose.yml
+├── README.md
+├── pyproject.toml
+└── .github/
 ```
 
 ---
 
-### Stop, Inspect, and Reset the Environment
+## Security / Reliability Considerations
 
-```bash
-# Stop containers and preserve database data
-docker compose down
+The codebase includes several practical safeguards:
 
-# View running container status
-docker compose ps
+- PII masking before outbound LLM analysis
+- Role-based access enforcement in the backend
+- Workspace-level scoping for members and documents
+- Background processing to avoid hard dependency on slow AI calls in the request cycle
+- Retry and fallback strategies in the worker/AI layer
+- Structured error handling for extraction, retrieval, and LLM failures
+- Manual review requirement before a final decision is recorded
+- Audit logging of review actions and document state changes
 
-# Follow logs for specific services
-docker compose logs -f backend
-docker compose logs -f frontend
-
-# Clean reset: stop containers and delete database/storage volumes
-docker compose down -v
-docker compose up --build
-```
-
-> [!WARNING]
-> Running `docker compose down -v` permanently deletes local PostgreSQL data, Redis queue state, and MinIO document storage. Use it when you intentionally want a clean slate.
+These are not a substitute for production hardening, but they are real implementation safeguards already present in the project.
 
 ---
 
-### Troubleshooting
+## Known Limitations
 
-**Port 5432 is already in use**
-Compose defaults to host port `5433`, preventing conflicts with a local PostgreSQL installation. To override:
-```bash
-POSTGRES_PORT=5434 docker compose up --build
-```
+This project is a strong portfolio and team development effort, but it is not presented as a production-grade deployment system. Important known limitations include:
 
-**Port 8000 or 3000 is already in use**
-Stop the process occupying the port, or edit the host-side port mapping in `docker-compose.yml`. The container port (right side of `:`) must remain unchanged.
-
-**A container will not start after configuration changes**
-Rebuild the affected services:
-```bash
-docker compose up --build backend worker frontend
-```
+- AI outputs are used for decision support, not autonomous approval
+- Some business and regulatory edge cases remain domain-specific and require human review
+- LLM-based analysis depends on provider availability, keys, and retrieval quality
+- Invitation email delivery depends on external email infrastructure and may fail; the direct invite-link fallback is the built-in workaround
 
 ---
 
-### Implementation Status
+## Team / Contribution
 
-The application provides an enterprise-ready, tenant-isolated compliance review platform:
-- **Backend & Worker**: FastAPI REST API, Celery + Redis async worker pipeline, custom-regex PII masking, local vector embeddings (`bge-base-en-v1.5`), `pgvector` retrieval engine, structured failure handling, Server-Sent Events (SSE) notification streaming, and backend-owned Alembic migrations.
-- **Frontend**: Next.js 16 App Router interface, Tailwind CSS v4, split-pane advisor/compliance officer workflows, real-time live synchronization via SSE, institutional toast alerts, two-stage advisor upload modal with client-side toast validation, and dedicated institutional Admin Console.
+This project was developed as a multi-track team effort across backend, frontend, AI, data engineering, and DevOps responsibilities.
+
+From the repository documentation, the major tracks are:
+
+- AI Engineering: masking, output validation, LLM integration, and failover logic
+- Backend Engineering: API governance, workspace authorization, document lifecycle, and async workflow orchestration
+- Frontend Engineering: dashboards, review UI, routing, notifications, and admin experience
+- Data Engineering: extraction, chunking, embeddings, and retrieval logic
+- DevOps / Platform: Docker, Alembic, Compose, and CI setup
+
+The repository structure reflects that split, with distinct responsibilities across backend, frontend, worker, and docs.
+
+---
+
+## Further Reading
+
+- [docs/architecture.md](docs/architecture.md)
+- [docs/technical-implementation-plan.md](docs/technical-implementation-plan.md)
+- [docs/ci-cd.md](docs/ci-cd.md)
+- [worker/ai/README.md](worker/ai/README.md)
+
+This README is intended to be practical for both end users and technical reviewers: it explains the actual workflow in plain language and provides enough architecture context for engineers and recruiters to understand the project quickly.
